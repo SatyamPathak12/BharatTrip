@@ -1,10 +1,40 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Search, Calendar, Users, Star, MapPin, Clock, Mountain, Filter, SlidersHorizontal, Play, Heart, Share2, Phone, Compass, Award, TrendingUp, Globe, Camera } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { 
+  ArrowLeft, 
+  MapPin, 
+  Star, 
+  Users, 
+  Calendar,
+  Clock,
+  Shield,
+  CheckCircle,
+  Heart,
+  Share2,
+  Phone,
+  Mail,
+  User,
+  Award,
+  ThumbsUp,
+  Camera,
+  Play,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Mountain,
+  Plus,
+  Minus,
+  Globe,
+  Compass,
+  TrendingUp,
+  Car,
+  Coffee,
+  Building2
+} from 'lucide-react';
 import Header from '../components/Header';
-import DatePicker from '../components/DatePicker';
 import { useAuth } from '../context/AuthContext';
 import { tourService, Tour } from '../lib/tourService';
+import { Search, Filter, SlidersHorizontal } from 'lucide-react';
 
 const ToursPage: React.FC = () => {
   const navigate = useNavigate();
@@ -20,6 +50,8 @@ const ToursPage: React.FC = () => {
     difficulty: 'all'
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [filteredTours, setFilteredTours] = useState<Tour[]>([]);
+  const [activeFilter, setActiveFilter] = useState<string>('all');
 
   // Fetch tours from Supabase
   useEffect(() => {
@@ -37,7 +69,6 @@ const ToursPage: React.FC = () => {
         } else {
           console.error('Failed to fetch tours:', result.error);
           setError(result.error || 'Failed to load tours');
-          // Set empty array as fallback
           setTours([]);
         }
       } catch (err) {
@@ -52,28 +83,93 @@ const ToursPage: React.FC = () => {
     fetchTours();
   }, []);
 
-  const handleSearch = () => {
-    // Navigate to search tours with filters
-    const searchParams = new URLSearchParams();
-    if (searchData.destination) searchParams.set('destination', searchData.destination);
-    if (searchData.date) searchParams.set('date', searchData.date);
-    if (searchData.travelers) searchParams.set('travelers', searchData.travelers.toString());
-    if (searchData.category !== 'all') searchParams.set('category', searchData.category);
-    if (searchData.difficulty !== 'all') searchParams.set('difficulty', searchData.difficulty);
-    
-    navigate(`/search-tours?${searchParams.toString()}`);
-  };
+  // Apply filters whenever tours or search data changes
+  useEffect(() => {
+    let result = [...tours];
 
-  const handleEnquiry = (tour: Tour) => {
-    if (user) {
-      // Navigate to tour booking
-      navigate(`/tour-booking/${tour.id}`);
-    } else {
-      // Store the booking URL for after login
-      sessionStorage.setItem('redirectAfterLogin', `/tour-booking/${tour.id}`);
-      navigate('/login');
+    // Apply category filter
+    if (searchData.category !== 'all') {
+      result = result.filter(tour => 
+        tour.category.toLowerCase() === searchData.category.toLowerCase()
+      );
+    }
+
+    // Apply difficulty filter
+    if (searchData.difficulty !== 'all') {
+      result = result.filter(tour => 
+        tour.difficulty.toLowerCase() === searchData.difficulty.toLowerCase()
+      );
+    }
+
+    // Apply destination filter
+    if (searchData.destination) {
+      const searchTerm = searchData.destination.toLowerCase();
+      result = result.filter(tour => 
+        tour.location.toLowerCase().includes(searchTerm) ||
+        tour.title.toLowerCase().includes(searchTerm) ||
+        tour.description.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    // Apply active category filter
+    if (activeFilter !== 'all') {
+      result = result.filter(tour => 
+        tour.category.toLowerCase() === activeFilter.toLowerCase()
+      );
+    }
+
+    setFilteredTours(result);
+  }, [tours, searchData, activeFilter]);
+
+  const handleSearch = () => {
+    // Apply filters directly on the page
+    setActiveFilter(searchData.category);
+    // Scroll to tours section
+    const toursSection = document.getElementById('filtered-tours-section');
+    if (toursSection) {
+      toursSection.scrollIntoView({ behavior: 'smooth' });
     }
   };
+
+  const handleCategoryClick = (category: string) => {
+    setActiveFilter(category);
+    setSearchData({ ...searchData, category: category.toLowerCase() });
+    // Scroll to tours section
+    const toursSection = document.getElementById('filtered-tours-section');
+    if (toursSection) {
+      toursSection.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const clearFilters = () => {
+    setActiveFilter('all');
+    setSearchData({
+      destination: '',
+      date: '',
+      travelers: 2,
+      category: 'all',
+      difficulty: 'all'
+    });
+  };
+
+ const handleEnquiry = (tour: Tour) => {
+  if (user) {
+    // Navigate to tour booking with tour data
+    navigate(`/tour-booking/${tour.id}`, {
+      state: { tour } // Pass the tour object
+    });
+  } else {
+    // Store the booking URL for after login
+    sessionStorage.setItem('redirectAfterLogin', `/tour-booking/${tour.id}`);
+    navigate('/login');
+  }
+};
+  // Add this handler function in ToursPage component
+ const handleViewDetails = (tour: Tour) => {
+    navigate(`/tour-details/${tour.id}`);
+  };
+
+
 
   const tourCategories = [
     { name: 'Cultural Tours', count: tours.filter(t => t.category === 'Cultural').length, icon: '🏛️', color: 'bg-purple-100 text-purple-800', category: 'Cultural' },
@@ -105,7 +201,7 @@ const ToursPage: React.FC = () => {
 
           {/* Search Form */}
           <div className="bg-white rounded-2xl shadow-2xl p-6 mx-auto max-w-6xl">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
               {/* Destination */}
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Where</label>
@@ -171,6 +267,22 @@ const ToursPage: React.FC = () => {
                 </select>
               </div>
 
+              {/* Difficulty */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Difficulty</label>
+                <select
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 appearance-none"
+                  value={searchData.difficulty}
+                  onChange={(e) => setSearchData({ ...searchData, difficulty: e.target.value })}
+                >
+                  <option value="all">All Levels</option>
+                  <option value="Easy">Easy</option>
+                  <option value="Moderate">Moderate</option>
+                  <option value="Challenging">Challenging</option>
+                  <option value="Difficult">Difficult</option>
+                </select>
+              </div>
+
               {/* Search Button */}
               <button
                 type="button"
@@ -178,7 +290,7 @@ const ToursPage: React.FC = () => {
                 className="bg-orange-500 text-white py-3 px-8 rounded-lg hover:bg-orange-600 transition-colors font-medium flex items-center justify-center space-x-2"
               >
                 <Search className="h-5 w-5" />
-                <span>Search Tours</span>
+                <span>Search</span>
               </button>
             </div>
           </div>
@@ -235,11 +347,7 @@ const ToursPage: React.FC = () => {
                 <div
                   key={index}
                   className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 p-6 text-center group cursor-pointer hover:-translate-y-1 border border-gray-100"
-                  onClick={() => {
-                    const searchParams = new URLSearchParams();
-                    searchParams.set('category', category.category.toLowerCase());
-                    navigate(`/search-tours?${searchParams.toString()}`);
-                  }}
+                  onClick={() => handleCategoryClick(category.category)}
                 >
                   <div className="text-4xl mb-4">{category.icon}</div>
                   <h3 className="text-xl font-bold text-gray-900 mb-2">{category.name}</h3>
@@ -249,6 +357,73 @@ const ToursPage: React.FC = () => {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* Filtered Tours Section */}
+      {!loading && !error && (activeFilter !== 'all' || searchData.destination || searchData.difficulty !== 'all') && (
+        <section id="filtered-tours-section" className="py-16 bg-gray-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-2">
+                  {activeFilter !== 'all' ? `${activeFilter} Tours` : 'Search Results'}
+                </h2>
+                <p className="text-lg text-gray-600">
+                  Found {filteredTours.length} tour{filteredTours.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={clearFilters}
+                className="flex items-center space-x-2 bg-white border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Filter className="h-4 w-4" />
+                <span>Clear Filters</span>
+              </button>
+            </div>
+
+            {/* Active Filters Display */}
+            <div className="mb-6 flex flex-wrap gap-2">
+              {activeFilter !== 'all' && (
+                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                  Category: {activeFilter}
+                  <button onClick={clearFilters} className="ml-2 hover:text-blue-900">×</button>
+                </span>
+              )}
+              {searchData.destination && (
+                <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                  Location: {searchData.destination}
+                  <button onClick={() => setSearchData({...searchData, destination: ''})} className="ml-2 hover:text-green-900">×</button>
+                </span>
+              )}
+              {searchData.difficulty !== 'all' && (
+                <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+                  Difficulty: {searchData.difficulty}
+                  <button onClick={() => setSearchData({...searchData, difficulty: 'all'})} className="ml-2 hover:text-orange-900">×</button>
+                </span>
+              )}
+            </div>
+
+            {filteredTours.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {filteredTours.map((tour) => (
+                  <TourCard key={tour.id} tour={tour} onEnquiry={handleEnquiry} onViewDetails={handleViewDetails} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-xl">
+                <Compass className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">No tours found</h3>
+                <p className="text-gray-600 mb-4">Try adjusting your filters or search criteria</p>
+                <button
+                  onClick={clearFilters}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Clear All Filters
+                </button>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -277,7 +452,7 @@ const ToursPage: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {featuredTours.map((tour) => (
-                <TourCard key={tour.id} tour={tour} onEnquiry={handleEnquiry} featured={true} />
+                <TourCard key={tour.id} tour={tour} onEnquiry={handleEnquiry} onViewDetails={handleViewDetails} featured={true} />
               ))}
             </div>
           </div>
@@ -299,15 +474,15 @@ const ToursPage: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {popularTours.map((tour) => (
-                <TourCard key={tour.id} tour={tour} onEnquiry={handleEnquiry} />
+                <TourCard key={tour.id} tour={tour} onEnquiry={handleEnquiry} onViewDetails={handleViewDetails} />
               ))}
             </div>
           </div>
         </section>
       )}
 
-      {/* All Tours */}
-      {!loading && !error && tours.length > 0 && (
+      {/* All Tours - Only show when no filters are active */}
+      {!loading && !error && tours.length > 0 && activeFilter === 'all' && !searchData.destination && searchData.difficulty === 'all' && (
         <section className="py-16 bg-gray-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
@@ -321,14 +496,17 @@ const ToursPage: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {tours.slice(0, 9).map((tour) => (
-                <TourCard key={tour.id} tour={tour} onEnquiry={handleEnquiry} />
+                <TourCard key={tour.id} tour={tour} onEnquiry={handleEnquiry} onViewDetails={handleViewDetails}/>
               ))}
             </div>
 
             {tours.length > 9 && (
               <div className="text-center mt-12">
                 <button
-                  onClick={() => navigate('/search-tours')}
+                  onClick={() => {
+                    // Show all tours by scrolling to top
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
                   className="bg-blue-600 text-white px-8 py-3 rounded-xl hover:bg-blue-700 transition-colors font-semibold shadow-lg hover:shadow-xl transform hover:scale-105"
                 >
                   View All {tours.length} Tours
@@ -422,9 +600,10 @@ const ToursPage: React.FC = () => {
 };
 
 // Tour Card Component
-const TourCard: React.FC<{ tour: Tour; onEnquiry: (tour: Tour) => void; featured?: boolean }> = ({ 
+const TourCard: React.FC<{ tour: Tour; onEnquiry: (tour: Tour) => void;  onViewDetails: (tour: Tour) => void; featured?: boolean }> = ({ 
   tour, 
-  onEnquiry, 
+  onEnquiry,
+   onViewDetails,  
   featured = false 
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -588,17 +767,11 @@ const TourCard: React.FC<{ tour: Tour; onEnquiry: (tour: Tour) => void; featured
             <span>Book Now</span>
           </button>
           <button 
-            onClick={() => {
-              // Navigate to tour details or search with this tour's info
-              const searchParams = new URLSearchParams();
-              searchParams.set('destination', tour.location);
-              searchParams.set('category', tour.category.toLowerCase());
-              navigate(`/search-tours?${searchParams.toString()}`);
-            }}
-            className="flex-1 bg-gray-600 text-white py-3 px-4 rounded-lg hover:bg-gray-700 transition-colors font-medium"
-          >
-            View Details
-          </button>
+    onClick={() => onViewDetails(tour)}
+    className="flex-1 bg-gray-600 text-white py-3 px-4 rounded-lg hover:bg-gray-700 transition-colors font-medium"
+  >
+    View Details
+  </button>
         </div>
       </div>
     </div>

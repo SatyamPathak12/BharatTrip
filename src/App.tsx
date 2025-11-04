@@ -20,6 +20,7 @@ import AdminTourManagement from './pages/AdminTourManagement';
 import Footer from './components/Footer';
 import AdminPopularDestinationManagement from './pages/AdminPopularDestinationManagement';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import TourDetailsPage from './pages/TourDetailsPage';
 
 function App() {
   return (
@@ -52,10 +53,16 @@ function App() {
               <Route path="/search" element={<HotelSearchResults />} />
               
               {/* Hotel Details */}
-              <Route path="/hotel/:hotelId" element={<HotelDetailsPage />} />
+              <Route path="/hotel-details/:hotelId" element={<HotelDetailsPage />} />
               
               {/* Property Management */}
               <Route path="/list-property" element={<PropertyListingFlow />} />
+
+              {/* Booking flow  */}
+              <Route path="/hotel-booking/:propertyId" element={<BookingFlow />} />
+
+              {/* Tour Page */}
+              <Route path="/tour-details/:tourId" element={<TourDetailsPage />} />
               
               {/* Admin */}
               <Route path="/admin/*" element={<AdminDashboard />} />

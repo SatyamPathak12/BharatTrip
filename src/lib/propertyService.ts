@@ -30,7 +30,9 @@ export interface PropertyData {
   contact_name: string;
   contact_email: string;
   contact_phone: string;
+  nearby_attractions?: string[];
   property_rules: string[];
+   
   cancellation_policy: string;
   check_in_time: string;
   check_out_time: string;

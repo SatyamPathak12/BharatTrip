@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, 
   MapPin, 
@@ -23,6 +23,8 @@ import {
   Share2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { tourService, Tour } from '../lib/tourService';
+import { bookingService } from '../lib/bookingService';
 import { format } from 'date-fns';
 
 // Scroll to top utility function
@@ -34,140 +36,84 @@ const scrollToTop = () => {
   });
 };
 
-interface Tour {
-  id: string;
-  title: string;
-  location: string;
-  duration: string;
-  price: number;
-  originalPrice: number;
-  rating: number;
-  reviews: number;
-  images: string[];
-  videos: string[];
-  description: string;
-  highlights: string[];
-  includes: string[];
-  excludes: string[];
-  itinerary: { day: number; title: string; description: string }[];
-  groupSize: string;
-  difficulty: 'Easy' | 'Moderate' | 'Challenging';
-  category: 'Cultural' | 'Adventure' | 'Nature' | 'Wildlife' | 'Beach' | 'Heritage';
-  createdBy: string;
-  createdAt: string;
-  isActive: boolean;
-}
-
 const TourBookingFlow: React.FC = () => {
   const { tourId } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   const [tour, setTour] = useState<Tour | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Get tour data from navigation state if available
+  const stateData = location.state as any;
+  
   const [bookingData, setBookingData] = useState({
-    travelers: 2,
-    travelDate: '',
+    travelers: stateData?.travelers || 2,
+    travelDate: stateData?.travelDate || '',
     specialRequests: '',
+    childrenAges: stateData?.childrenAges || [],
     guestDetails: {
       firstName: '',
       lastName: '',
-      email: '',
+      email: user?.email || '',
       phone: '',
       country: 'India'
     }
   });
   
   // Scroll to top when component mounts
-  React.useEffect(() => {
+  useEffect(() => {
     scrollToTop();
   }, []);
 
   // Load tour data
-  React.useEffect(() => {
+  useEffect(() => {
     const loadTour = async () => {
-      setIsLoading(true);
-      
-      // Mock tour data - in real app, this would come from API
-      const mockTours: Tour[] = [
-        {
-          id: '1',
-          title: 'Golden Triangle Heritage Tour',
-          location: 'Delhi - Agra - Jaipur',
-          duration: '6 Days / 5 Nights',
-          price: 25000,
-          originalPrice: 30000,
-          rating: 4.8,
-          reviews: 1247,
-          images: [
-            'https://images.pexels.com/photos/1583339/pexels-photo-1583339.jpeg',
-            'https://images.pexels.com/photos/3581364/pexels-photo-3581364.jpeg',
-            'https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg'
-          ],
-          videos: ['https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4'],
-          description: 'Experience India\'s most iconic destinations in this comprehensive 6-day journey through the Golden Triangle.',
-          highlights: ['Taj Mahal at Sunrise', 'Red Fort Delhi', 'Hawa Mahal Jaipur', 'Amber Fort', 'Local Markets', 'Traditional Cuisine'],
-          includes: ['5-star Accommodation', 'All Meals', 'Private Transport', 'Expert Guide', 'Entry Tickets', 'Airport Transfers'],
-          excludes: ['International Flights', 'Personal Expenses', 'Tips', 'Travel Insurance'],
-          itinerary: [
-            { day: 1, title: 'Arrival in Delhi', description: 'Airport pickup and check-in to hotel. Evening visit to India Gate and Connaught Place.' },
-            { day: 2, title: 'Delhi Sightseeing', description: 'Full day tour of Old and New Delhi including Red Fort, Jama Masjid, and Raj Ghat.' },
-            { day: 3, title: 'Delhi to Agra', description: 'Drive to Agra. Visit Taj Mahal at sunset and Agra Fort.' }
-          ],
-          groupSize: 'Max 15 people',
-          difficulty: 'Easy',
-          category: 'Cultural',
-          createdBy: 'admin',
-          createdAt: '2024-01-15',
-          isActive: true
-        },
-        {
-          id: '2',
-          title: 'Kerala Backwaters & Hills',
-          location: 'Kochi - Munnar - Alleppey',
-          duration: '5 Days / 4 Nights',
-          price: 18500,
-          originalPrice: 22000,
-          rating: 4.7,
-          reviews: 892,
-          images: [
-            'https://images.pexels.com/photos/962464/pexels-photo-962464.jpeg',
-            'https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg',
-            'https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'
-          ],
-          videos: ['https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_2mb.mp4'],
-          description: 'Discover God\'s Own Country with this enchanting journey through Kerala\'s backwaters and hill stations.',
-          highlights: ['Houseboat Stay', 'Tea Plantations', 'Spice Gardens', 'Backwater Cruise', 'Ayurvedic Spa', 'Traditional Cuisine'],
-          includes: ['Houseboat Accommodation', 'All Meals', 'Transfers', 'Sightseeing', 'Ayurvedic Treatment'],
-          excludes: ['Flights', 'Personal Expenses', 'Additional Activities'],
-          itinerary: [
-            { day: 1, title: 'Arrival in Kochi', description: 'Airport pickup and city tour including Chinese Fishing Nets and Fort Kochi.' },
-            { day: 2, title: 'Kochi to Munnar', description: 'Drive to Munnar. Visit tea plantations and Mattupetty Dam.' }
-          ],
-          groupSize: 'Max 12 people',
-          difficulty: 'Easy',
-          category: 'Nature',
-          createdBy: 'admin',
-          createdAt: '2024-01-20',
-          isActive: true
-        }
-      ];
-      
-      const foundTour = mockTours.find(t => t.id === tourId);
-      if (foundTour) {
-        setTour(foundTour);
+      if (!tourId) {
+        setError('Tour ID not found');
+        setIsLoading(false);
+        return;
       }
+
+      setIsLoading(true);
+      setError(null);
       
-      setIsLoading(false);
+      try {
+        // Check if tour was passed via navigation state
+        if (stateData?.tour) {
+          console.log('Using tour from navigation state');
+          setTour(stateData.tour);
+          setIsLoading(false);
+          return;
+        }
+
+        // Otherwise fetch from database
+        console.log('Fetching tour from database:', tourId);
+        const result = await tourService.getTourById(tourId);
+        
+        if (result.success && result.tour) {
+          console.log('Tour fetched successfully:', result.tour);
+          setTour(result.tour);
+        } else {
+          console.error('Failed to fetch tour:', result.error);
+          setError(result.error || 'Tour not found');
+        }
+      } catch (err) {
+        console.error('Error loading tour:', err);
+        setError('Failed to load tour details');
+      } finally {
+        setIsLoading(false);
+      }
     };
     
-    if (tourId) {
-      loadTour();
-    }
-  }, [tourId]);
+    loadTour();
+  }, [tourId, stateData]);
 
   // Check if user is authenticated
   if (!user) {
+    sessionStorage.setItem('redirectAfterLogin', `/tour-booking/${tourId}`);
     navigate('/login');
     return null;
   }
@@ -184,17 +130,29 @@ const TourBookingFlow: React.FC = () => {
     );
   }
 
-  if (!tour) {
+  // Show error state
+  if (error || !tour) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-orange-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Tour not found</h2>
-          <button 
-            onClick={() => navigate('/tours')}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-all duration-300 transform hover:scale-105"
-          >
-            Back to tours
-          </button>
+        <div className="text-center max-w-md mx-auto px-4">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-8 mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Tour Not Found</h2>
+            <p className="text-gray-600 mb-4">{error || 'The tour you are trying to book does not exist or has been removed.'}</p>
+          </div>
+          <div className="flex gap-4 justify-center">
+            <button 
+              onClick={() => navigate('/tours')}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-all duration-300 transform hover:scale-105"
+            >
+              Browse All Tours
+            </button>
+            <button 
+              onClick={() => navigate('/')}
+              className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition-all duration-300 transform hover:scale-105"
+            >
+              Go Home
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -217,11 +175,11 @@ const TourBookingFlow: React.FC = () => {
           <div className="flex items-center justify-between h-20">
             {/* Back Button - Left Side */}
             <button
-              onClick={() => navigate('/tours')}
+              onClick={() => navigate(-1)}
               className="flex items-center space-x-2 text-gray-600 hover:text-gray-800 transition-all duration-300 bg-white/50 px-4 py-2 rounded-lg hover:bg-white/80 backdrop-blur-sm"
             >
               <ArrowLeft className="h-5 w-5" />
-              <span>Back to tours</span>
+              <span>Back</span>
             </button>
             
             {/* Logo - Center */}
@@ -291,8 +249,12 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
     setBookingData({ ...bookingData, travelers: newCount });
   };
 
+  const defaultImage = 'https://images.pexels.com/photos/1583339/pexels-photo-1583339.jpeg';
+  const tourImages = tour.images && tour.images.length > 0 ? tour.images : [defaultImage];
+  const tourVideos = tour.videos || [];
+
   const totalPrice = tour.price * bookingData.travelers;
-  const savings = (tour.originalPrice - tour.price) * bookingData.travelers;
+  const savings = tour.original_price > tour.price ? (tour.original_price - tour.price) * bookingData.travelers : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -305,11 +267,11 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
               {!showVideo ? (
                 <>
                   <img
-                    src={tour.images[currentImageIndex]}
+                    src={tourImages[currentImageIndex]}
                     alt={tour.title}
                     className="w-full h-full object-cover"
                   />
-                  {tour.videos.length > 0 && (
+                  {tourVideos.length > 0 && (
                     <button
                       onClick={() => setShowVideo(true)}
                       className="absolute top-4 left-4 bg-black/50 text-white p-3 rounded-full hover:bg-black/70 transition-colors"
@@ -321,7 +283,7 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
               ) : (
                 <div className="relative">
                   <video
-                    src={tour.videos[0]}
+                    src={tourVideos[0]}
                     controls
                     className="w-full h-full object-cover"
                     autoPlay
@@ -336,9 +298,9 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
               )}
               
               {/* Image Navigation */}
-              {tour.images.length > 1 && !showVideo && (
+              {tourImages.length > 1 && !showVideo && (
                 <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2">
-                  {tour.images.map((_, index) => (
+                  {tourImages.map((_: string, index: number) => (
                     <button
                       key={index}
                       onClick={() => setCurrentImageIndex(index)}
@@ -380,7 +342,7 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
               </div>
               <div className="flex items-center text-gray-600">
                 <Users className="h-5 w-5 mr-2" />
-                <span>{tour.groupSize}</span>
+                <span>{tour.group_size}</span>
               </div>
               <div className="flex items-center text-gray-600">
                 <Mountain className="h-5 w-5 mr-2" />
@@ -391,12 +353,14 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
             <div className="flex items-center mb-6">
               <Star className="h-5 w-5 text-yellow-400 fill-current" />
               <span className="text-lg font-medium text-gray-900 ml-1">{tour.rating}</span>
-              <span className="text-gray-500 ml-2">({tour.reviews} reviews)</span>
+              <span className="text-gray-500 ml-2">({tour.reviews_count} reviews)</span>
               <span className={`ml-4 px-3 py-1 rounded-full text-sm font-medium ${
                 tour.category === 'Cultural' ? 'bg-purple-100 text-purple-800' :
                 tour.category === 'Adventure' ? 'bg-green-100 text-green-800' :
                 tour.category === 'Nature' ? 'bg-blue-100 text-blue-800' :
-                'bg-orange-100 text-orange-800'
+                tour.category === 'Wildlife' ? 'bg-orange-100 text-orange-800' :
+                tour.category === 'Beach' ? 'bg-cyan-100 text-cyan-800' :
+                'bg-red-100 text-red-800'
               }`}>
                 {tour.category}
               </span>
@@ -408,7 +372,7 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
             <div className="mb-6">
               <h3 className="text-xl font-bold text-gray-900 mb-4">Tour Highlights</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {tour.highlights.map((highlight, index) => (
+                {tour.highlights.map((highlight: string, index: number) => (
                   <div key={index} className="flex items-center">
                     <CheckCircle className="h-5 w-5 text-green-600 mr-3" />
                     <span className="text-gray-700">{highlight}</span>
@@ -422,7 +386,7 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
               <div>
                 <h3 className="text-lg font-bold text-gray-900 mb-4">What's Included</h3>
                 <div className="space-y-2">
-                  {tour.includes.map((item, index) => (
+                  {(tour.included || tour.includes || []).map((item: string, index: number) => (
                     <div key={index} className="flex items-center">
                       <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
                       <span className="text-sm text-gray-700">{item}</span>
@@ -433,7 +397,7 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
               <div>
                 <h3 className="text-lg font-bold text-gray-900 mb-4">What's Not Included</h3>
                 <div className="space-y-2">
-                  {tour.excludes.map((item, index) => (
+                  {(tour.excluded || tour.excludes || []).map((item: string, index: number) => (
                     <div key={index} className="flex items-center">
                       <div className="h-4 w-4 border-2 border-red-300 rounded-full mr-2 flex items-center justify-center">
                         <div className="h-2 w-2 bg-red-400 rounded-full"></div>
@@ -457,10 +421,12 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
 
             {/* Price Display */}
             <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600">Original Price</span>
-                <span className="text-sm text-gray-500 line-through">₹{tour.originalPrice.toLocaleString()}</span>
-              </div>
+              {tour.original_price > tour.price && (
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-600">Original Price</span>
+                  <span className="text-sm text-gray-500 line-through">₹{tour.original_price.toLocaleString()}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between mb-2">
                 <span className="text-lg font-semibold text-gray-900">Tour Price</span>
                 <span className="text-2xl font-bold text-blue-600">₹{tour.price.toLocaleString()}</span>
@@ -550,7 +516,7 @@ const TourOptions: React.FC<any> = ({ tour, bookingData, setBookingData, setCurr
   );
 };
 
-// Guest Details Component
+// Guest Details Component (keep existing implementation)
 const GuestDetails: React.FC<any> = ({ tour, bookingData, setBookingData, setCurrentStep }) => {
   const handleInputChange = (field: string, value: string) => {
     setBookingData({
@@ -573,7 +539,6 @@ const GuestDetails: React.FC<any> = ({ tour, bookingData, setBookingData, setCur
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      {/* Hero Section */}
       <div className="text-center mb-12">
         <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-orange-500 rounded-full mb-6 shadow-lg">
           <User className="h-8 w-8 text-white" />
@@ -587,7 +552,6 @@ const GuestDetails: React.FC<any> = ({ tour, bookingData, setBookingData, setCur
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Guest Form */}
         <div className="lg:col-span-2">
           <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8">
             <div className="flex items-center space-x-3 mb-8">
@@ -707,7 +671,6 @@ const GuestDetails: React.FC<any> = ({ tour, bookingData, setBookingData, setCur
           </div>
         </div>
 
-        {/* Booking Summary */}
         <div className="lg:col-span-1">
           <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8 sticky top-32">
             <div className="flex items-center space-x-3 mb-6">
@@ -774,22 +737,97 @@ const PaymentDetails: React.FC<any> = ({ tour, bookingData, setCurrentStep, navi
     name: ''
   });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [savedBookingId, setSavedBookingId] = useState('');
 
   const totalPrice = tour.price * bookingData.travelers;
   const serviceFee = Math.round(totalPrice * 0.05);
   const finalTotal = totalPrice + serviceFee;
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
+    
+    try {
+      console.log('Starting booking process...');
+      console.log('Booking data:', bookingData);
+      console.log('Tour data:', tour);
+
+      // Validate required fields
+      if (!bookingData.guestDetails.firstName || !bookingData.guestDetails.lastName) {
+        alert('Please fill in all guest details');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (!bookingData.travelDate) {
+        alert('Please select a travel date');
+        setIsProcessing(false);
+        return;
+      }
+
+      // Create booking data object
+      const createBookingData = {
+        // Tour Information
+        tour_id: tour.id,
+        tour_title: tour.title,
+        tour_location: tour.location,
+        tour_duration: tour.duration,
+        
+        // Guest Details
+        guest_first_name: bookingData.guestDetails.firstName,
+        guest_last_name: bookingData.guestDetails.lastName,
+        guest_email: bookingData.guestDetails.email,
+        guest_phone: bookingData.guestDetails.phone,
+        guest_country: bookingData.guestDetails.country,
+        
+        // Booking Details
+        travel_date: bookingData.travelDate,
+        number_of_travelers: bookingData.travelers,
+        children_count: 0,
+        children_ages: bookingData.childrenAges || [],
+        special_requests: bookingData.specialRequests || '',
+        
+        // Pricing
+        price_per_person: tour.price,
+        total_price: totalPrice,
+        service_fee: serviceFee,
+        final_total: finalTotal,
+        discount_applied: tour.original_price > tour.price ? 
+          (tour.original_price - tour.price) * bookingData.travelers : 0,
+        
+        // Payment Information
+        payment_method: paymentMethod
+      };
+
+      console.log('Sending booking data to service:', createBookingData);
+
+      // Save booking to database
+      const result = await bookingService.createBooking(createBookingData);
+      
+      console.log('Booking result:', result);
+
+      if (result.success && result.booking) {
+        console.log('Booking created successfully:', result.booking);
+        setSavedBookingId(result.booking.booking_id);
+        
+        // Small delay to simulate payment processing
+        setTimeout(() => {
+          setIsProcessing(false);
+          setCurrentStep(4);
+        }, 1000);
+      } else {
+        console.error('Failed to create booking:', result.error);
+        alert(`Failed to create booking: ${result.error || 'Unknown error'}`);
+        setIsProcessing(false);
+      }
+    } catch (error) {
+      console.error('Error creating booking:', error);
+      alert(`An error occurred: ${error instanceof Error ? error.message : 'Please try again.'}`);
       setIsProcessing(false);
-      setCurrentStep(4);
-    }, 2000);
+    }
   };
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      {/* Hero Section */}
       <div className="text-center mb-12">
         <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-orange-500 rounded-full mb-6 shadow-lg">
           <CreditCard className="h-8 w-8 text-white" />
@@ -803,9 +841,7 @@ const PaymentDetails: React.FC<any> = ({ tour, bookingData, setCurrentStep, navi
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Payment Form */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Payment Methods */}
           <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8">
             <div className="flex items-center space-x-3 mb-8">
               <div className="w-2 h-8 bg-gradient-to-b from-blue-600 to-orange-500 rounded-full"></div>
@@ -841,7 +877,6 @@ const PaymentDetails: React.FC<any> = ({ tour, bookingData, setCurrentStep, navi
             </div>
           </div>
 
-          {/* Card Details */}
           {paymentMethod === 'card' && (
             <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8">
               <div className="flex items-center space-x-3 mb-8">
@@ -907,7 +942,6 @@ const PaymentDetails: React.FC<any> = ({ tour, bookingData, setCurrentStep, navi
             </div>
           )}
 
-          {/* Security Notice */}
           <div className="bg-gradient-to-r from-blue-50 to-orange-50 border-2 border-blue-200 rounded-2xl p-6">
             <div className="flex items-start">
               <Shield className="h-6 w-6 text-blue-600 mt-1 mr-4" />
@@ -920,7 +954,6 @@ const PaymentDetails: React.FC<any> = ({ tour, bookingData, setCurrentStep, navi
             </div>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row justify-between gap-4 pt-4">
             <button
               onClick={() => setCurrentStep(2)}
@@ -945,7 +978,6 @@ const PaymentDetails: React.FC<any> = ({ tour, bookingData, setCurrentStep, navi
           </div>
         </div>
 
-        {/* Final Summary */}
         <div className="lg:col-span-1">
           <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8 sticky top-32">
             <div className="flex items-center space-x-3 mb-6">
@@ -996,14 +1028,20 @@ const PaymentDetails: React.FC<any> = ({ tour, bookingData, setCurrentStep, navi
 
 // Booking Confirmation Component
 const BookingConfirmation: React.FC<any> = ({ tour, bookingData, navigate }) => {
-  const bookingId = 'BT' + Math.random().toString(36).substr(2, 9).toUpperCase();
+  const [displayBookingId, setDisplayBookingId] = useState('');
+
+  useEffect(() => {
+    // Generate booking ID for display
+    const bookingId = 'BT' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    setDisplayBookingId(bookingId);
+  }, []);
+
   const totalPrice = tour.price * bookingData.travelers;
   const serviceFee = Math.round(totalPrice * 0.05);
   const finalTotal = totalPrice + serviceFee;
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center">
-      {/* Success Animation */}
       <div className="mb-12">
         <div className="inline-flex items-center justify-center w-24 h-24 bg-gradient-to-r from-blue-600 to-orange-500 rounded-full mb-8 shadow-2xl animate-pulse">
           <CheckCircle className="h-12 w-12 text-white" />
@@ -1027,7 +1065,7 @@ const BookingConfirmation: React.FC<any> = ({ tour, bookingData, navigate }) => 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
             <div className="flex justify-between">
               <span className="text-gray-600">Booking ID</span>
-              <span className="font-bold text-blue-600 text-lg">{bookingId}</span>
+              <span className="font-bold text-blue-600 text-lg">{displayBookingId}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Tour</span>

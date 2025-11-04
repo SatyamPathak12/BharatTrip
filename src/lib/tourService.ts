@@ -4,6 +4,7 @@ export interface TourItineraryDay {
   day: number;
   title: string;
   description: string;
+  duration?: string;
 }
 
 export interface TourData {
@@ -11,10 +12,11 @@ export interface TourData {
   location: string;
   duration: string;
   description: string;
+  date: string;
   price: number;
   original_price: number;
   group_size: string;
-  difficulty: 'Easy' | 'Moderate' | 'Challenging';
+  difficulty: 'Easy' | 'Moderate' | 'Challenging' | 'Difficult';
   category: 'Cultural' | 'Adventure' | 'Nature' | 'Wildlife' | 'Beach' | 'Heritage';
   highlights: string[];
   includes: string[];
@@ -26,6 +28,10 @@ export interface TourData {
   featured?: boolean;
   seo_title?: string;
   seo_description?: string;
+  languages?: string[];
+  contact_phone?: string;
+  contact_email?: string;
+  cancellation_policy?: string;
 }
 
 export interface Tour extends TourData {
@@ -46,6 +52,8 @@ export interface Tour extends TourData {
   };
   discount_percentage?: number;
   total_days?: number;
+  included?: string[];  // Alias for includes
+  excluded?: string[];  // Alias for excludes
 }
 
 export const tourService = {
@@ -104,6 +112,22 @@ export const tourService = {
     }
   },
 
+  // Transform tour data to include aliases
+  transformTourData(data: any): Tour {
+    return {
+      ...data,
+      included: data.includes || [],  // Alias for includes
+      excluded: data.excludes || [],  // Alias for excludes
+      languages: data.languages || ['English', 'Hindi'],
+      contact_phone: data.contact_phone || '+91 1800 123 4567',
+      contact_email: data.contact_email || 'tours@example.com',
+      cancellation_policy: data.cancellation_policy || 'Free cancellation up to 24 hours before the tour starts. 50% refund for cancellations made 24-48 hours before. No refund for cancellations made less than 24 hours before the tour.',
+      discount_percentage: data.original_price > data.price ? 
+        Math.round(((data.original_price - data.price) / data.original_price) * 100) : 0,
+      total_days: Array.isArray(data.itinerary) ? data.itinerary.length : 0
+    };
+  },
+
   // Create a new tour
   async createTour(tourData: TourData): Promise<{ success: boolean; error?: string; tour?: Tour }> {
     try {
@@ -121,6 +145,7 @@ export const tourService = {
         location: tourData.location,
         duration: tourData.duration,
         description: tourData.description,
+        date: tourData.date,
         price: tourData.price,
         original_price: tourData.original_price,
         group_size: tourData.group_size,
@@ -138,6 +163,10 @@ export const tourService = {
         priority_listing: false,
         seo_title: tourData.seo_title,
         seo_description: tourData.seo_description,
+        languages: tourData.languages || ['English', 'Hindi'],
+        contact_phone: tourData.contact_phone || '+91 1800 123 4567',
+        contact_email: tourData.contact_email || 'tours@example.com',
+        cancellation_policy: tourData.cancellation_policy || 'Free cancellation up to 24 hours before the tour starts.',
         max_bookings_per_day: 1,
         advance_booking_days: 90,
         rating: 4.5,
@@ -172,16 +201,13 @@ export const tourService = {
         .single();
 
       // Transform the response to match our Tour interface
-      const tour: Tour = {
+      const tour: Tour = this.transformTourData({
         ...data,
         creator: creatorProfile ? {
           name: creatorProfile.name,
           email: creatorProfile.email
-        } : undefined,
-        discount_percentage: data.original_price > data.price ? 
-          Math.round(((data.original_price - data.price) / data.original_price) * 100) : 0,
-        total_days: Array.isArray(data.itinerary) ? data.itinerary.length : 0
-      };
+        } : undefined
+      });
 
       return { success: true, tour };
     } catch (error) {
@@ -218,15 +244,12 @@ export const tourService = {
       console.log('Tours fetched successfully:', data?.length || 0);
 
       // Transform the response
-      const tours: Tour[] = (data || []).map(tour => ({
+      const tours: Tour[] = (data || []).map(tour => this.transformTourData({
         ...tour,
         creator: tour.profiles ? {
           name: tour.profiles.name,
           email: tour.profiles.email
-        } : undefined,
-        discount_percentage: tour.original_price > tour.price ? 
-          Math.round(((tour.original_price - tour.price) / tour.original_price) * 100) : 0,
-        total_days: Array.isArray(tour.itinerary) ? tour.itinerary.length : 0
+        } : undefined
       }));
 
       return { success: true, tours };
@@ -284,12 +307,7 @@ export const tourService = {
         return { success: false, error: error.message };
       }
 
-      const tours: Tour[] = (data || []).map(tour => ({
-        ...tour,
-        discount_percentage: tour.original_price > tour.price ? 
-          Math.round(((tour.original_price - tour.price) / tour.original_price) * 100) : 0,
-        total_days: Array.isArray(tour.itinerary) ? tour.itinerary.length : 0
-      }));
+      const tours: Tour[] = (data || []).map(tour => this.transformTourData(tour));
 
       return { success: true, tours };
     } catch (error) {
@@ -332,16 +350,13 @@ export const tourService = {
         .eq('id', data.created_by)
         .single();
 
-      const tour: Tour = {
+      const tour: Tour = this.transformTourData({
         ...data,
         creator: creatorProfile ? {
           name: creatorProfile.name,
           email: creatorProfile.email
-        } : undefined,
-        discount_percentage: data.original_price > data.price ? 
-          Math.round(((data.original_price - data.price) / data.original_price) * 100) : 0,
-        total_days: Array.isArray(data.itinerary) ? data.itinerary.length : 0
-      };
+        } : undefined
+      });
 
       return { success: true, tour };
     } catch (error) {
@@ -391,16 +406,13 @@ export const tourService = {
         .eq('id', data.created_by)
         .single();
 
-      const tour: Tour = {
+      const tour: Tour = this.transformTourData({
         ...data,
         creator: creatorProfile ? {
           name: creatorProfile.name,
           email: creatorProfile.email
-        } : undefined,
-        discount_percentage: data.original_price > data.price ? 
-          Math.round(((data.original_price - data.price) / data.original_price) * 100) : 0,
-        total_days: Array.isArray(data.itinerary) ? data.itinerary.length : 0
-      };
+        } : undefined
+      });
 
       return { success: true, tour };
     } catch (error) {

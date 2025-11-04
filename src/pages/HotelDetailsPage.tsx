@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, 
   MapPin, 
@@ -28,18 +28,22 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Building2
+  Building2,
+  Plus,
+  Minus
 } from 'lucide-react';
 import Header from '../components/Header';
 import DatePicker from '../components/DatePicker';
 import { useAuth } from '../context/AuthContext';
 import { hotelService } from '../lib/hotelService';
 import { format } from 'date-fns';
+import { supabase } from '../lib/supabase';
 
 const HotelDetailsPage: React.FC = () => {
   const { hotelId } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [hotel, setHotel] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,149 +51,422 @@ const HotelDetailsPage: React.FC = () => {
   const [showImageGallery, setShowImageGallery] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [isGuestDropdownOpen, setIsGuestDropdownOpen] = useState(false);
+  const guestDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Get booking data from navigation state if available
+  const stateData = location.state as any;
+  
   const [bookingData, setBookingData] = useState({
-    checkIn: '',
-    checkOut: '',
-    guests: 2,
-    rooms: 1
+    checkIn: stateData?.checkIn || '',
+    checkOut: stateData?.checkOut || '',
+    guests: stateData?.guests || 2,
+    children: 0,
+    childrenAges: [] as number[],
+    rooms: stateData?.rooms || 1,
+    pets: false
   });
 
+  // Calculate total guests
+   const totalGuests = bookingData.guests + bookingData.children;
+
+
+const NearbyAttractions: React.FC<NearbyAttractionsProps> = ({ propertyId }) => {
+  const [nearbyAttractions, setNearbyAttractions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    const loadHotel = async () => {
-      if (!hotelId) return;
-      
-      setLoading(true);
-      setError(null);
-      
+    const fetchNearbyAttractions = async () => {
       try {
-        console.log('Fetching hotel details for ID:', hotelId);
-        const result = await hotelService.getHotelById(hotelId);
-        
-        if (result.success && result.hotel) {
-          setHotel(result.hotel);
+        setLoading(true);
+        const { data, error } = await supabase
+          .from("properties")
+          .select("id, nearby_attractions") // include id for debugging
+          .eq("id", propertyId)
+          .single();
+
+        console.log("Fetched data:", data); // ✅ Check what’s coming from Supabase
+        console.log("Property ID used:", propertyId);
+
+        if (error) throw error;
+
+        if (data && Array.isArray(data.nearby_attractions)) {
+          setNearbyAttractions(data.nearby_attractions);
         } else {
-          console.error('Failed to fetch hotel:', result.error);
-          // Use mock data as fallback
-          const mockHotel = getMockHotelById(hotelId);
-          if (mockHotel) {
-            setHotel(mockHotel);
-          } else {
-            setError('Hotel not found');
-          }
+          console.warn("No nearby_attractions found or not an array");
+          setNearbyAttractions([]);
         }
       } catch (err) {
-        console.error('Error fetching hotel from database:', err);
-        // Use mock data as fallback
-        const mockHotel = getMockHotelById(hotelId);
-        if (mockHotel) {
-          setHotel(mockHotel);
-        } else {
-          setError('Failed to load hotel details');
-        }
+        console.error("Error fetching nearby attractions:", err);
+        setNearbyAttractions([]);
       } finally {
         setLoading(false);
       }
     };
 
-    loadHotel();
-  }, [hotelId]);
+    fetchNearbyAttractions();
+  }, [propertyId]);
 
-  const getMockHotelById = (id: string) => {
-    const mockHotels = [
-      {
-        id: '1',
-        name: 'Taj Palace Mumbai',
-        description: 'Experience luxury at its finest in the heart of Mumbai. This iconic hotel offers world-class amenities, exceptional service, and breathtaking views of the Arabian Sea.',
-        location: 'Mumbai, Maharashtra',
-        address: 'Apollo Bunder, Colaba, Mumbai, Maharashtra 400001',
-        property_type: 'hotel',
-        price_per_night: 8500,
-        max_guests: 4,
-        bedrooms: 2,
-        bathrooms: 2,
-        amenities: ['Free WiFi', 'Swimming Pool', 'Spa & Wellness', 'Restaurant', 'Fitness Center', 'Room Service', 'Concierge', 'Valet Parking'],
-        images: [
-          'https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg',
-          'https://images.pexels.com/photos/271624/pexels-photo-271624.jpeg',
-          'https://images.pexels.com/photos/164595/pexels-photo-164595.jpeg'
-        ],
-        contact_name: 'Hotel Manager',
-        contact_email: 'manager@tajpalace.com',
-        contact_phone: '+91 22 6665 3366',
-        status: 'approved',
-        is_active: true,
-        is_available: true,
-        created_at: '2024-01-15T00:00:00Z',
-        updated_at: '2024-01-15T00:00:00Z',
-        user: {
-          name: 'Taj Hotels',
-          email: 'contact@tajhotels.com'
-        }
-      },
-      {
-        id: '2',
-        name: 'Goa Beach Resort',
-        description: 'Escape to paradise at this stunning beachfront resort. Enjoy pristine beaches, crystal-clear waters, and world-class hospitality in the heart of Goa.',
-        location: 'Goa',
-        address: 'Calangute Beach, North Goa, Goa 403516',
-        property_type: 'resort',
-        price_per_night: 6200,
-        max_guests: 6,
-        bedrooms: 3,
-        bathrooms: 2,
-        amenities: ['Beach Access', 'Swimming Pool', 'Restaurant', 'Bar/Lounge', 'Water Sports', 'Spa', 'Free WiFi', 'Airport Shuttle'],
-        images: [
-          'https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg',
-          'https://images.pexels.com/photos/1007657/pexels-photo-1007657.jpeg',
-          'https://images.pexels.com/photos/189296/pexels-photo-189296.jpeg'
-        ],
-        contact_name: 'Resort Manager',
-        contact_email: 'manager@goabeach.com',
-        contact_phone: '+91 832 227 8800',
-        status: 'approved',
-        is_active: true,
-        is_available: true,
-        created_at: '2024-01-20T00:00:00Z',
-        updated_at: '2024-01-20T00:00:00Z',
-        user: {
-          name: 'Beach Resorts Ltd',
-          email: 'contact@beachresorts.com'
-        }
-      },
-      {
-        id: '3',
-        name: 'Kerala Homestay',
-        description: 'Immerse yourself in authentic Kerala culture at this traditional homestay nestled among lush tea plantations. Experience warm hospitality and breathtaking mountain views.',
-        location: 'Munnar, Kerala',
-        address: 'Tea Garden Road, Munnar, Kerala 685612',
-        property_type: 'homestay',
-        price_per_night: 3500,
-        max_guests: 4,
-        bedrooms: 2,
-        bathrooms: 1,
-        amenities: ['Kitchen Access', 'Garden', 'Mountain View', 'Free WiFi', 'Traditional Meals', 'Nature Walks'],
-        images: [
-          'https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg',
-          'https://images.pexels.com/photos/962464/pexels-photo-962464.jpeg',
-          'https://images.pexels.com/photos/1371360/pexels-photo-1371360.jpeg'
-        ],
-        contact_name: 'Local Host',
-        contact_email: 'host@keralahome.com',
-        contact_phone: '+91 486 523 1234',
-        status: 'approved',
-        is_active: true,
-        is_available: true,
-        created_at: '2024-01-25T00:00:00Z',
-        updated_at: '2024-01-25T00:00:00Z',
-        user: {
-          name: 'Local Family',
-          email: 'family@keralahome.com'
+  if (loading) {
+    return <p className="text-gray-500 text-sm">Loading nearby attractions...</p>;
+  }
+
+  if (nearbyAttractions.length === 0) {
+    return <p className="text-gray-500 text-sm">No nearby attractions available.</p>;
+  }
+
+  return (
+    <div>
+      <h3 className="text-lg font-semibold text-gray-900 mb-3">Nearby Attractions</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {nearbyAttractions.map((attraction, index) => (
+          <div
+            key={index}
+            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+          >
+            <span className="font-medium text-gray-900">{attraction}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+
+ // Helper function to get beds summary
+  const getBedsSummary = (beds: any[]) => {
+    if (!beds || !Array.isArray(beds)) return { description: '', totalBeds: 0, guestCapacity: 0 };
+    
+    const bedTypes: string[] = [];
+    let totalBeds = 0;
+    let guestCapacity = 0;
+    
+    beds.forEach((bed: any) => {
+      if (bed.count > 0) {
+        totalBeds += bed.count;
+        bedTypes.push(`${bed.count} ${bed.type}${bed.count > 1 ? 's' : ''}`);
+        
+        // Estimate guest capacity based on bed type
+        if (bed.type.includes('Single')) {
+          guestCapacity += bed.count * 1;
+        } else if (bed.type.includes('Double') || bed.type.includes('Large') || bed.type.includes('King')) {
+          guestCapacity += bed.count * 2;
+        } else if (bed.type.includes('Sofa') || bed.type.includes('Futon')) {
+          guestCapacity += bed.count * 1;
+        } else if (bed.type.includes('Bunk')) {
+          guestCapacity += bed.count * 2;
+        } else {
+          guestCapacity += bed.count * 2; // Default to 2 guests
         }
       }
-    ];
-
-    return mockHotels.find(h => h.id === id);
+    });
+    
+    return {
+      description: bedTypes.join(', ') || 'No beds configured',
+      totalBeds,
+      guestCapacity
+    };
   };
+
+  // Parse bed configuration from hotel data
+  const getBedConfigurationRooms = () => {
+    if (!hotel?.bed_configuration) return [];
+    
+    const bedConfig = hotel.bed_configuration;
+    const rooms = [];
+    
+    // Process bedrooms
+    if (bedConfig.bedrooms && Array.isArray(bedConfig.bedrooms)) {
+      bedConfig.bedrooms.forEach((bedroom: any, index: number) => {
+        const bedsInfo = getBedsSummary(bedroom.beds);
+          rooms.push({
+            id: `bedroom-${index}`,
+            name: bedroom.name || `Bedroom ${index + 1}`,
+            type: 'bedroom',
+            beds: bedroom.beds,
+            bedsDescription: bedsInfo.description,
+            totalBeds: bedsInfo.totalBeds,
+            guests: bedsInfo.guestCapacity,
+            size: hotel.property_size || 'Standard size',
+            price: hotel.price_per_night,
+            originalPrice: Math.round(hotel.price_per_night * 1.15),
+            amenities: hotel.amenities?.slice(0, 5) || [],
+            images: hotel.images || ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
+            cancellation: hotel.cancellation_policy || 'Free cancellation until 24 hours before check-in',
+            breakfast: true,
+            badge: index === 0 ? 'Popular' : index === 1 ? 'Premium' : null
+          });
+        
+      });
+    }
+    
+    // Process living room if it has beds
+    if (bedConfig.living_room?.beds) {
+      const bedsInfo = getBedsSummary(bedConfig.living_room.beds);
+      if (bedsInfo.totalBeds > 0) {
+        rooms.push({
+          id: 'living-room',
+          name: 'Living Room',
+          type: 'living_room',
+          beds: bedConfig.living_room.beds,
+          bedsDescription: bedsInfo.description,
+          totalBeds: bedsInfo.totalBeds,
+          guests: bedsInfo.guestCapacity,
+          size: hotel.property_size || 'Standard size',
+          price: Math.round(hotel.price_per_night * 0.8),
+          originalPrice: hotel.price_per_night,
+          amenities: hotel.amenities?.slice(0, 4) || [],
+          images: hotel.images || ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
+          cancellation: hotel.cancellation_policy || 'Free cancellation until 24 hours before check-in',
+          breakfast: true,
+          badge: null
+        });
+      }
+    }
+    
+    // Process other spaces
+    if (bedConfig.other_spaces && Array.isArray(bedConfig.other_spaces)) {
+      bedConfig.other_spaces.forEach((space: any, index: number) => {
+        const bedsInfo = getBedsSummary(space.beds);
+        if (bedsInfo.totalBeds > 0) {
+          rooms.push({
+            id: `other-space-${index}`,
+            name: space.name || `Other Space ${index + 1}`,
+            type: 'other_space',
+            beds: space.beds,
+            bedsDescription: bedsInfo.description,
+            totalBeds: bedsInfo.totalBeds,
+            guests: bedsInfo.guestCapacity,
+            size: hotel.property_size || 'Standard size',
+            price: Math.round(hotel.price_per_night * 0.7),
+            originalPrice: Math.round(hotel.price_per_night * 0.85),
+            amenities: hotel.amenities?.slice(0, 3) || [],
+            images: hotel.images || ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
+            cancellation: hotel.cancellation_policy || 'Free cancellation until 24 hours before check-in',
+            breakfast: false,
+            badge: null
+          });
+        }
+      });
+    }
+    
+    return rooms;
+  };
+
+  const propertyRooms = getBedConfigurationRooms();
+
+  // Update guest values
+  const updateGuestValue = (field: 'guests' | 'children' | 'rooms', delta: number) => {
+    setBookingData(prev => {
+      const newValue = Math.max(field === 'guests' ? 1 : field === 'rooms' ? 1 : 0, prev[field] + delta);
+      
+      // If reducing children, also reduce childrenAges array
+      if (field === 'children' && delta < 0) {
+        return {
+          ...prev,
+          [field]: newValue,
+          childrenAges: prev.childrenAges.slice(0, newValue)
+        };
+      }
+      
+      return {
+        ...prev,
+        [field]: newValue
+      };
+    });
+  };
+
+  // Update child age
+  const updateChildAge = (index: number, age: number) => {
+    setBookingData(prev => {
+      const newAges = [...prev.childrenAges];
+      newAges[index] = age;
+      return {
+        ...prev,
+        childrenAges: newAges
+      };
+    });
+  };
+
+  // Close dropdown when clicking outside
+useEffect(() => {
+  const loadHotel = async () => {
+    if (!hotelId) return;
+    
+    // First, check if property data was passed via navigation state
+    const propertyFromState = location.state?.property;
+    
+    if (propertyFromState) {
+      console.log('Using property data from navigation state:', propertyFromState);
+      
+      // Transform the state property to match expected format
+      const transformedHotel = {
+        id: propertyFromState.id,
+        name: propertyFromState.name,
+        description: propertyFromState.description || 'Beautiful property with excellent amenities',
+        location: propertyFromState.location,
+        address: propertyFromState.address || propertyFromState.location,
+        property_type: propertyFromState.type || propertyFromState.property_type,
+        price_per_night: propertyFromState.price || propertyFromState.price_per_night,
+        max_guests: propertyFromState.maxGuests || propertyFromState.max_guests,
+        bedrooms: propertyFromState.bedrooms,
+        bathrooms: propertyFromState.bathrooms,
+        amenities: propertyFromState.amenities || [],
+        images: propertyFromState.images && propertyFromState.images.length > 0 
+          ? propertyFromState.images 
+          : ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
+        contact_phone: propertyFromState.contact_phone || 'Not available',
+        contact_email: propertyFromState.contact_email || 'Not available',
+        rating: propertyFromState.rating || 4.5,
+        review_count: propertyFromState.review_count || 0,
+        user: propertyFromState.user || { 
+          name: propertyFromState.owner || 'Property Owner', 
+          email: 'contact@property.com' 
+        },
+        bed_configuration: propertyFromState.bed_configuration,
+        property_size: propertyFromState.property_size,
+        cancellation_policy: propertyFromState.cancellation_policy || 'Free cancellation until 24 hours before check-in',
+        nearby_attractions: propertyFromState.nearby_attractions
+      };
+      
+      setHotel(transformedHotel);
+      setLoading(false);
+      return; // Exit early since we have the data
+    }
+    
+    // If no state data, fetch from database
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log('Fetching hotel details from database for ID:', hotelId);
+      const result = await hotelService.getHotelById(hotelId);
+      
+      if (result.success && result.hotel) {
+        // Transform the hotel data to match the expected format
+        const transformedHotel = {
+          ...result.hotel,
+          images: result.hotel.images && result.hotel.images.length > 0 
+            ? result.hotel.images 
+            : ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
+          amenities: result.hotel.amenities || [],
+          contact_phone: result.hotel.contact_phone || 'Not available',
+          contact_email: result.hotel.contact_email || 'Not available',
+          address: result.hotel.address || result.hotel.location,
+          user: result.hotel.user || { name: 'Property Owner', email: 'contact@property.com' }
+        };
+        setHotel(transformedHotel);
+      } else {
+        console.error('Failed to fetch hotel:', result.error);
+        setError('Hotel not found. Please try another property.');
+      }
+    } catch (err) {
+      console.error('Error fetching hotel from database:', err);
+      setError('Failed to load hotel details. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  loadHotel();
+}, [hotelId, location.state]);
+
+  // const getMockHotelById = (id: string) => {
+  //   const mockHotels = [
+  //     {
+  //       id: '1',
+  //       name: 'Taj Palace Mumbai',
+  //       description: 'Experience luxury at its finest in the heart of Mumbai. This iconic hotel offers world-class amenities, exceptional service, and breathtaking views of the Arabian Sea.',
+  //       location: 'Mumbai, Maharashtra',
+  //       address: 'Apollo Bunder, Colaba, Mumbai, Maharashtra 400001',
+  //       property_type: 'hotel',
+  //       price_per_night: 8500,
+  //       max_guests: 4,
+  //       bedrooms: 2,
+  //       bathrooms: 2,
+  //       amenities: ['Free WiFi', 'Swimming Pool', 'Spa & Wellness', 'Restaurant', 'Fitness Center', 'Room Service', 'Concierge', 'Valet Parking'],
+  //       images: [
+  //         'https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg',
+  //         'https://images.pexels.com/photos/271624/pexels-photo-271624.jpeg',
+  //         'https://images.pexels.com/photos/164595/pexels-photo-164595.jpeg'
+  //       ],
+  //       contact_name: 'Hotel Manager',
+  //       contact_email: 'manager@tajpalace.com',
+  //       contact_phone: '+91 22 6665 3366',
+  //       status: 'approved',
+  //       is_active: true,
+  //       is_available: true,
+  //       created_at: '2024-01-15T00:00:00Z',
+  //       updated_at: '2024-01-15T00:00:00Z',
+  //       user: {
+  //         name: 'Taj Hotels',
+  //         email: 'contact@tajhotels.com'
+  //       }
+  //     },
+  //     {
+  //       id: '2',
+  //       name: 'Goa Beach Resort',
+  //       description: 'Escape to paradise at this stunning beachfront resort. Enjoy pristine beaches, crystal-clear waters, and world-class hospitality in the heart of Goa.',
+  //       location: 'Goa',
+  //       address: 'Calangute Beach, North Goa, Goa 403516',
+  //       property_type: 'resort',
+  //       price_per_night: 6200,
+  //       max_guests: 6,
+  //       bedrooms: 3,
+  //       bathrooms: 2,
+  //       amenities: ['Beach Access', 'Swimming Pool', 'Restaurant', 'Bar/Lounge', 'Water Sports', 'Spa', 'Free WiFi', 'Airport Shuttle'],
+  //       images: [
+  //         'https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg',
+  //         'https://images.pexels.com/photos/1007657/pexels-photo-1007657.jpeg',
+  //         'https://images.pexels.com/photos/189296/pexels-photo-189296.jpeg'
+  //       ],
+  //       contact_name: 'Resort Manager',
+  //       contact_email: 'manager@goabeach.com',
+  //       contact_phone: '+91 832 227 8800',
+  //       status: 'approved',
+  //       is_active: true,
+  //       is_available: true,
+  //       created_at: '2024-01-20T00:00:00Z',
+  //       updated_at: '2024-01-20T00:00:00Z',
+  //       user: {
+  //         name: 'Beach Resorts Ltd',
+  //         email: 'contact@beachresorts.com'
+  //       }
+  //     },
+  //     {
+  //       id: '3',
+  //       name: 'Kerala Homestay',
+  //       description: 'Immerse yourself in authentic Kerala culture at this traditional homestay nestled among lush tea plantations. Experience warm hospitality and breathtaking mountain views.',
+  //       location: 'Munnar, Kerala',
+  //       address: 'Tea Garden Road, Munnar, Kerala 685612',
+  //       property_type: 'homestay',
+  //       price_per_night: 3500,
+  //       max_guests: 4,
+  //       bedrooms: 2,
+  //       bathrooms: 1,
+  //       amenities: ['Kitchen Access', 'Garden', 'Mountain View', 'Free WiFi', 'Traditional Meals', 'Nature Walks'],
+  //       images: [
+  //         'https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg',
+  //         'https://images.pexels.com/photos/962464/pexels-photo-962464.jpeg',
+  //         'https://images.pexels.com/photos/1371360/pexels-photo-1371360.jpeg'
+  //       ],
+  //       contact_name: 'Local Host',
+  //       contact_email: 'host@keralahome.com',
+  //       contact_phone: '+91 486 523 1234',
+  //       status: 'approved',
+  //       is_active: true,
+  //       is_available: true,
+  //       created_at: '2024-01-25T00:00:00Z',
+  //       updated_at: '2024-01-25T00:00:00Z',
+  //       user: {
+  //         name: 'Local Family',
+  //         email: 'family@keralahome.com'
+  //       }
+  //     }
+  //   ];
+
+  //   return mockHotels.find(h => h.id === id);
+  // };
 
   const handleBookNow = () => {
     if (user) {
@@ -219,50 +496,7 @@ const HotelDetailsPage: React.FC = () => {
     return iconMap[amenity] || <Star className="h-5 w-5" />;
   };
 
-  const mockRooms = [
-    {
-      id: 1,
-      name: 'Deluxe Room',
-      size: '25 sqm',
-      beds: '1 King Bed',
-      guests: 2,
-      price: hotel?.price_per_night || 5000,
-      originalPrice: (hotel?.price_per_night || 5000) + 1000,
-      amenities: ['Free WiFi', 'Air Conditioning', 'Room Service', 'Mini Bar'],
-      images: [hotel?.images?.[0] || 'https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
-      cancellation: 'Free cancellation until 24 hours before check-in',
-      breakfast: true,
-      badge: 'Popular'
-    },
-    {
-      id: 2,
-      name: 'Superior Room',
-      size: '30 sqm',
-      beds: '1 King Bed',
-      guests: 2,
-      price: (hotel?.price_per_night || 5000) + 1500,
-      originalPrice: (hotel?.price_per_night || 5000) + 2500,
-      amenities: ['Free WiFi', 'Air Conditioning', 'Room Service', 'Mini Bar', 'Balcony'],
-      images: [hotel?.images?.[0] || 'https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
-      cancellation: 'Free cancellation until 24 hours before check-in',
-      breakfast: true,
-      badge: 'Premium'
-    },
-    {
-      id: 3,
-      name: 'Executive Suite',
-      size: '45 sqm',
-      beds: '1 King Bed + Sofa Bed',
-      guests: 4,
-      price: (hotel?.price_per_night || 5000) + 3000,
-      originalPrice: (hotel?.price_per_night || 5000) + 4000,
-      amenities: ['Free WiFi', 'Air Conditioning', 'Room Service', 'Mini Bar', 'Balcony', 'Living Area', 'Executive Lounge'],
-      images: [hotel?.images?.[0] || 'https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
-      cancellation: 'Free cancellation until 24 hours before check-in',
-      breakfast: true,
-      badge: 'Luxury'
-    }
-  ];
+
 
   const mockReviews = [
     {
@@ -305,20 +539,30 @@ const HotelDetailsPage: React.FC = () => {
     );
   }
 
-  if (error || !hotel) {
+ if (error || !hotel) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-orange-50">
         <Header variant="page" />
         <div className="pt-20 flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Hotel not found</h2>
-            <p className="text-gray-600 mb-6">{error || 'The hotel you are looking for does not exist.'}</p>
-            <button 
-              onClick={() => navigate('/hotel-search')}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Back to search
-            </button>
+          <div className="text-center max-w-md mx-auto px-4">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-8 mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Hotel Not Found</h2>
+              <p className="text-gray-600 mb-4">{error || 'The hotel you are looking for does not exist or has been removed.'}</p>
+            </div>
+            <div className="flex gap-4 justify-center">
+              <button 
+                onClick={() => navigate('/hotel-search')}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Search Hotels
+              </button>
+              <button 
+                onClick={() => navigate('/hotels')}
+                className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition-colors font-medium"
+              >
+                View All Hotels
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -373,8 +617,8 @@ const HotelDetailsPage: React.FC = () => {
                     </div>
                     <div className="flex items-center">
                       <Star className="h-5 w-5 text-yellow-400 fill-current mr-1" />
-                      <span className="text-lg font-semibold">4.8</span>
-                      <span className="text-sm ml-1">(324 reviews)</span>
+                      <span className="text-lg font-semibold">{hotel.rating ? hotel.rating.toFixed(1) : '4.5'}</span>
+                      <span className="text-sm ml-1">({hotel.review_count || '0'} reviews)</span>
                     </div>
                   </div>
                   <div className="flex items-center space-x-6 text-sm">
@@ -429,7 +673,7 @@ const HotelDetailsPage: React.FC = () => {
               <div className="flex space-x-1">
                 {[
                   { id: 'overview', label: 'Overview', icon: Building2 },
-                  { id: 'rooms', label: 'Rooms', icon: Bed },
+                  { id: 'rooms', label: 'Bedrooms', icon: Bed },
                   { id: 'amenities', label: 'Amenities', icon: Star },
                   { id: 'reviews', label: 'Reviews', icon: ThumbsUp },
                   { id: 'location', label: 'Location', icon: MapPin }
@@ -509,109 +753,134 @@ const HotelDetailsPage: React.FC = () => {
               </div>
             )}
 
-            {activeTab === 'rooms' && (
-              <div className="space-y-6">
-                <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <div className="w-2 h-8 bg-gradient-to-b from-blue-600 to-orange-500 rounded-full"></div>
-                    <h2 className="text-2xl font-bold text-gray-900">Available Rooms</h2>
+       {activeTab === 'rooms' && (
+  <div className="space-y-6">
+    <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8">
+      <div className="flex items-center space-x-3 mb-6">
+        <div className="w-2 h-8 bg-gradient-to-b from-blue-600 to-orange-500 rounded-full"></div>
+        <h2 className="text-2xl font-bold text-gray-900">Available Bedrooms</h2>
+      </div>
+      
+      {propertyRooms.length > 0 ? (
+        <div className="space-y-6">
+          {propertyRooms.map((room) => (
+            <div key={room.id} className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow">
+              <div className="p-6">
+                <div className="flex flex-col lg:flex-row gap-6">
+                  {/* Room Image */}
+                  <div className="lg:w-64">
+                    <div className="relative">
+                      <img
+                        src={room.images[0]}
+                        alt={room.name}
+                        className="w-full h-48 object-cover rounded-lg"
+                      />
+                      {room.badge && (
+                        <div className="absolute top-3 left-3">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            room.badge === 'Popular' ? 'bg-green-500 text-white' :
+                            room.badge === 'Premium' ? 'bg-blue-500 text-white' :
+                            'bg-purple-500 text-white'
+                          }`}>
+                            {room.badge}
+                          </span>
+                        </div>
+                      )}
+                      {/* Room Type Badge */}
+                      <div className="absolute top-3 right-3">
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-white/90 text-gray-900 capitalize">
+                          {room.type.replace('_', ' ')}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  
-                  <div className="space-y-6">
-                    {mockRooms.map((room) => (
-                      <div key={room.id} className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow">
-                        <div className="p-6">
-                          <div className="flex flex-col lg:flex-row gap-6">
-                            {/* Room Image */}
-                            <div className="lg:w-64">
-                              <div className="relative">
-                                <img
-                                  src={room.images[0]}
-                                  alt={room.name}
-                                  className="w-full h-48 object-cover rounded-lg"
-                                />
-                                {room.badge && (
-                                  <div className="absolute top-3 left-3">
-                                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                      room.badge === 'Popular' ? 'bg-green-500 text-white' :
-                                      room.badge === 'Premium' ? 'bg-blue-500 text-white' :
-                                      'bg-purple-500 text-white'
-                                    }`}>
-                                      {room.badge}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
 
-                            {/* Room Details */}
-                            <div className="flex-1">
-                              <div className="flex justify-between items-start mb-4">
-                                <div>
-                                  <h3 className="text-xl font-bold text-gray-900 mb-2">{room.name}</h3>
-                                  <div className="flex items-center space-x-4 text-sm text-gray-600 mb-3">
-                                    <div className="flex items-center">
-                                      <Building2 className="h-4 w-4 mr-1" />
-                                      <span>{room.size}</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <Bed className="h-4 w-4 mr-1" />
-                                      <span>{room.beds}</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <Users className="h-4 w-4 mr-1" />
-                                      <span>Up to {room.guests} guests</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-sm text-gray-500 line-through">₹{room.originalPrice.toLocaleString()}</div>
-                                  <div className="text-2xl font-bold text-gray-900">₹{room.price.toLocaleString()}</div>
-                                  <div className="text-sm text-gray-600">per night</div>
-                                </div>
-                              </div>
-
-                              {/* Amenities */}
-                              <div className="mb-4">
-                                <div className="flex flex-wrap gap-2">
-                                  {room.amenities.map((amenity, index) => (
-                                    <span key={index} className="inline-flex items-center px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-700 font-medium">
-                                      {amenity}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-
-                              {/* Benefits */}
-                              <div className="space-y-2 mb-4">
-                                <div className="flex items-center text-sm text-green-600">
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  <span>{room.cancellation}</span>
-                                </div>
-                                {room.breakfast && (
-                                  <div className="flex items-center text-sm text-green-600">
-                                    <CheckCircle className="h-4 w-4 mr-2" />
-                                    <span>Breakfast included</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Select Button */}
-                              <button
-                                onClick={handleBookNow}
-                                className="w-full bg-gradient-to-r from-blue-600 to-orange-500 text-white py-3 px-6 rounded-lg hover:from-blue-700 hover:to-orange-600 transition-all duration-300 font-medium shadow-lg hover:shadow-xl transform hover:scale-105"
-                              >
-                                Select Room - ₹{(room.price * nights).toLocaleString()} total
-                              </button>
-                            </div>
+                  {/* Room Details */}
+                  <div className="flex-1">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">{room.name}</h3>
+                        <div className="flex items-center space-x-4 text-sm text-gray-600 mb-3">
+                          <div className="flex items-center">
+                            <Building2 className="h-4 w-4 mr-1" />
+                            <span>{room.size}</span>
+                          </div>
+                          <div className="flex items-center">
+                            <Bed className="h-4 w-4 mr-1" />
+                            <span>{room.totalBeds} bed{room.totalBeds > 1 ? 's' : ''}</span>
+                          </div>
+                          <div className="flex items-center">
+                            <Users className="h-4 w-4 mr-1" />
+                            <span>Up to {room.guests} guests</span>
                           </div>
                         </div>
+                        {/* Bed Configuration Details */}
+                        <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                          <h4 className="text-xs font-semibold text-gray-700 mb-2">Bed Configuration:</h4>
+                          <p className="text-sm text-gray-600">{room.bedsDescription}</p>
+                        </div>
                       </div>
-                    ))}
+                      <div className="text-right">
+                        {room.originalPrice > room.price && (
+                          <div className="text-sm text-gray-500 line-through">₹{room.originalPrice.toLocaleString()}</div>
+                        )}
+                        <div className="text-2xl font-bold text-gray-900">₹{room.price.toLocaleString()}</div>
+                        <div className="text-sm text-gray-600">per night</div>
+                      </div>
+                    </div>
+
+                    {/* Amenities */}
+                    {room.amenities.length > 0 && (
+                      <div className="mb-4">
+                        <div className="flex flex-wrap gap-2">
+                          {room.amenities.map((amenity, index) => (
+                            <span key={index} className="inline-flex items-center px-3 py-1 rounded-full text-xs bg-blue-50 text-blue-700 font-medium">
+                              {amenity}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Benefits */}
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-center text-sm text-green-600">
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        <span>{room.cancellation}</span>
+                      </div>
+                      {room.breakfast && (
+                        <div className="flex items-center text-sm text-green-600">
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          <span>Breakfast included</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Select Button */}
+                    <button
+                      onClick={handleBookNow}
+                      className="w-full bg-gradient-to-r from-blue-600 to-orange-500 text-white py-3 px-6 rounded-lg hover:from-blue-700 hover:to-orange-600 transition-all duration-300 font-medium shadow-lg hover:shadow-xl transform hover:scale-105"
+                    >
+                      Select Room - ₹{(room.price * nights).toLocaleString()} total
+                    </button>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <Bed className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Bedrooms Configured</h3>
+          <p className="text-gray-600">
+            This property doesn't have any bedroom configurations set up yet.
+          </p>
+        </div>
+      )}
+    </div>
+  </div>
+)}
 
             {activeTab === 'amenities' && (
               <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-xl border border-white/20 p-8">
@@ -695,8 +964,9 @@ const HotelDetailsPage: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                  <NearbyAttractions propertyId={hotel.id} />
                   
-                  <div>
+                  {/* <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-3">Nearby Attractions</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {[
@@ -714,7 +984,7 @@ const HotelDetailsPage: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </div> */}
                 </div>
               </div>
             )}
@@ -747,25 +1017,161 @@ const HotelDetailsPage: React.FC = () => {
               </div>
 
               {/* Guests & Rooms */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">Guests & Rooms</label>
+              <div className="mb-6" ref={guestDropdownRef}>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Guests & Rooms</label>
                 <div className="relative">
-                  <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-                  <select
-                    className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-transparent appearance-none bg-white/50 backdrop-blur-sm"
-                    value={`${bookingData.guests}-${bookingData.rooms}`}
-                    onChange={(e) => {
-                      const [guests, rooms] = e.target.value.split('-').map(Number);
-                      setBookingData({ ...bookingData, guests, rooms });
-                    }}
+                  <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5 pointer-events-none z-10" />
+                  <button
+                    type="button"
+                    onClick={() => setIsGuestDropdownOpen(!isGuestDropdownOpen)}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 text-left text-sm bg-white hover:bg-gray-50 transition-colors"
                   >
-                    <option value="1-1">1 Guest, 1 Room</option>
-                    <option value="2-1">2 Guests, 1 Room</option>
-                    <option value="3-1">3 Guests, 1 Room</option>
-                    <option value="4-1">4 Guests, 1 Room</option>
-                    <option value="4-2">4 Guests, 2 Rooms</option>
-                    <option value="6-2">6 Guests, 2 Rooms</option>
-                  </select>
+                    {totalGuests} Guest{totalGuests !== 1 ? 's' : ''}, {bookingData.rooms} Room{bookingData.rooms !== 1 ? 's' : ''}
+                  </button>
+
+                  {/* Dropdown Panel */}
+                  {isGuestDropdownOpen && (
+                    <div className="absolute z-50 mt-2 w-full min-w-[300px] bg-white border border-gray-200 rounded-lg shadow-xl p-4">
+                      {/* Adults */}
+                      <div className="flex items-center justify-between py-3 border-b border-gray-200">
+                        <span className="text-gray-900 font-medium text-sm">Adults</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('guests', -1)}
+                            disabled={bookingData.guests <= 1}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <Minus className="h-4 w-4 text-gray-600" />
+                          </button>
+                          <span className="text-gray-900 font-medium w-6 text-center">
+                            {bookingData.guests}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('guests', 1)}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <Plus className="h-4 w-4 text-blue-600" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Children */}
+                      <div className="py-3 border-b border-gray-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-gray-900 font-medium text-sm">Children</span>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('children', -1)}
+                              disabled={bookingData.children <= 0}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <Minus className="h-4 w-4 text-gray-600" />
+                            </button>
+                            <span className="text-gray-900 font-medium w-6 text-center">
+                              {bookingData.children}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('children', 1)}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              <Plus className="h-4 w-4 text-blue-600" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Age Selectors for Children */}
+                        {bookingData.children > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {Array.from({ length: bookingData.children }).map((_, index) => (
+                              <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                                <span className="text-sm text-gray-700">Child {index + 1} age</span>
+                                <select
+                                  value={bookingData.childrenAges[index] || 5}
+                                  onChange={(e) => updateChildAge(index, Number(e.target.value))}
+                                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                                >
+                                  {Array.from({ length: 15 }, (_, i) => i + 1).map((age) => (
+                                    <option key={age} value={age}>
+                                      {age} {age === 1 ? 'year' : 'years'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))}
+                            <p className="text-xs text-gray-600 mt-2">
+                              To find you a place to stay that fits your entire group along with correct prices, we need to know how old your child will be at check-out
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Rooms */}
+                      <div className="flex items-center justify-between py-3 border-b border-gray-200">
+                        <span className="text-gray-900 font-medium text-sm">Rooms</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('rooms', -1)}
+                            disabled={bookingData.rooms <= 1}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <Minus className="h-4 w-4 text-gray-600" />
+                          </button>
+                          <span className="text-gray-900 font-medium w-6 text-center">
+                            {bookingData.rooms}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('rooms', 1)}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <Plus className="h-4 w-4 text-blue-600" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Pets Toggle */}
+                      <div className="flex items-center justify-between py-3">
+                        <span className="text-gray-900 text-sm">Travelling with pets?</span>
+                        <button
+                          type="button"
+                          onClick={() => setBookingData(prev => ({ ...prev, pets: !prev.pets }))}
+                          className={`relative w-11 h-6 rounded-full transition-colors ${
+                            bookingData.pets ? 'bg-gray-500' : 'bg-gray-300'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                              bookingData.pets ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Info Text */}
+                      <div className="mt-2 mb-3">
+                        <p className="text-xs text-gray-600">
+                          Assistance animals aren't considered pets.
+                        </p>
+                        <a href="#" className="text-xs text-blue-600 hover:underline">
+                          Read more about travelling with assistance animals
+                        </a>
+                      </div>
+
+                      {/* Done Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsGuestDropdownOpen(false)}
+                        className="w-full py-2.5 text-blue-600 font-medium border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors text-sm"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 

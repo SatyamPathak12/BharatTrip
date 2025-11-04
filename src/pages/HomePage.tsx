@@ -1,12 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Calendar, Users, Star, MapPin, Wifi, Car, Coffee, Waves, Bed, Bath, Building2, Plus, Minus } from 'lucide-react';
+import { Search, Calendar, Users, Star, MapPin, Wifi, Car, Coffee, Waves, Bed, Bath, Building2, Plus, Minus, ChevronLeft, ChevronRight } from 'lucide-react';
 import Header from '../components/Header';
 import DatePicker from '../components/DatePicker';
 import { useBooking } from '../context/BookingContext';
 import { useAuth } from '../context/AuthContext';
 import { hotelService } from '../lib/hotelService';
 import { supabase } from '../lib/supabase';
+
+// Add CSS for hiding scrollbar
+const scrollbarHideStyle = `
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+`;
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -29,8 +40,10 @@ const HomePage: React.FC = () => {
   const [isGuestDropdownOpen, setIsGuestDropdownOpen] = useState(false);
   const [isDestinationDropdownOpen, setIsDestinationDropdownOpen] = useState(false);
   const [searchHistory, setSearchHistory] = useState<any[]>([]);
+  const [propertyTypes, setPropertyTypes] = useState<any[]>([]);
   const guestDropdownRef = useRef<HTMLDivElement>(null);
   const destinationDropdownRef = useRef<HTMLDivElement>(null);
+  const propertyTypesRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -46,17 +59,45 @@ const HomePage: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch featured hotels from database
   useEffect(() => {
     const fetchFeaturedHotels = async () => {
       setLoading(true);
       try {
-        console.log('Fetching featured hotels...');
-        const result = await hotelService.getFeaturedHotels(4);
+        console.log('Fetching featured properties from properties table...');
         
-        if (result.success && result.hotels) {
-          // Transform database hotels to match UI format
-          const transformedHotels = result.hotels.map(hotel => ({
+        // Fetch properties where is_featured = true
+        const { data, error } = await supabase
+          .from('properties')
+          .select(`
+            id,
+            name,
+            location,
+            price_per_night,
+            images,
+            amenities,
+            property_type,
+            description,
+            is_available,
+            max_guests,
+            bedrooms,
+            bathrooms,
+            user:user_id (
+              name
+            )
+          `)
+          .eq('is_featured', true)
+          .eq('is_available', true)
+          .limit(4);
+
+        if (error) {
+          console.error('Error fetching featured properties:', error);
+          setFeaturedHotels(getMockProperties());
+          return;
+        }
+
+        if (data && data.length > 0) {
+          // Transform database properties to match UI format
+          const transformedHotels = data.map(hotel => ({
             id: hotel.id,
             name: hotel.name,
             location: hotel.location,
@@ -76,9 +117,10 @@ const HomePage: React.FC = () => {
             owner: hotel.user?.name || 'Property Owner'
           }));
 
+          console.log(`Found ${transformedHotels.length} featured properties`);
           setFeaturedHotels(transformedHotels);
         } else {
-          console.error('Failed to fetch featured hotels:', result.error);
+          console.log('No featured properties found, using mock data');
           setFeaturedHotels(getMockProperties());
         }
       } catch (error) {
@@ -204,6 +246,59 @@ const HomePage: React.FC = () => {
 
     fetchSearchHistory();
   }, [user]);
+
+  // Fetch property types dynamically
+  useEffect(() => {
+    const fetchPropertyTypes = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('properties')
+          .select('property_type')
+          .eq('is_available', true);
+
+        if (error) {
+          console.error('Error fetching property types:', error);
+          return;
+        }
+
+        if (data) {
+          // Count properties by type
+          const typeCounts: { [key: string]: number } = {};
+          data.forEach(item => {
+            const type = item.property_type;
+            typeCounts[type] = (typeCounts[type] || 0) + 1;
+          });
+
+          // Transform to array with icons
+          const typeIcons: { [key: string]: string } = {
+            'hotel': '🏨',
+            'resort': '🏖️',
+            'homestay': '🏠',
+            'villa': '🏡',
+            'apartment': '🏢',
+            'guesthouse': '🏘️',
+            'cottage': '🛖',
+            'hostel': '🏨',
+            'lodge': '🏕️',
+            'bungalow': '🏠'
+          };
+
+          const types = Object.entries(typeCounts).map(([type, count]) => ({
+            name: type.charAt(0).toUpperCase() + type.slice(1) + 's',
+            icon: typeIcons[type.toLowerCase()] || '🏠',
+            count: `${count}+ ${count === 1 ? 'property' : 'properties'}`,
+            type: type
+          }));
+
+          setPropertyTypes(types);
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching property types:', err);
+      }
+    };
+
+    fetchPropertyTypes();
+  }, []);
 
   const getMockProperties = () => [
     {
@@ -415,31 +510,32 @@ const HomePage: React.FC = () => {
     navigate(`/hotel-search?${searchParams.toString()}`);
   };
 
-  const propertyTypes = [
-    {
-      name: 'Hotels',
-      icon: '🏨',
-      description: 'Comfortable stays with modern amenities',
-      count: '2,500+',
-    },
-    {
-      name: 'Resorts',
-      icon: '🏖️',
-      description: 'Luxury resorts with premium facilities',
-      count: '800+',
-    },
-    {
-      name: 'Homestays',
-      icon: '🏠',
-      description: 'Authentic local experiences',
-      count: '1,200+',
-    },
-  ];
-
   const totalGuests = searchData.guests + searchData.children;
+
+  const scrollPropertyTypes = (direction: 'left' | 'right') => {
+    if (propertyTypesRef.current) {
+      const scrollAmount = 300;
+      const newScrollLeft = direction === 'left'
+        ? propertyTypesRef.current.scrollLeft - scrollAmount
+        : propertyTypesRef.current.scrollLeft + scrollAmount;
+      
+      propertyTypesRef.current.scrollTo({
+        left: newScrollLeft,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // Handle property type click - navigate to search with property type filter
+  const handlePropertyTypeClick = (propertyType: string) => {
+    const searchParams = new URLSearchParams();
+    searchParams.set('propertyType', propertyType);
+    navigate(`/hotel-search?${searchParams.toString()}`);
+  };
 
   return (
     <div className="min-h-screen">
+      <style>{scrollbarHideStyle}</style>
       {/* Hero Section */}
       <section 
         className="relative min-h-screen bg-cover bg-center bg-no-repeat"
@@ -497,11 +593,6 @@ const HomePage: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs text-gray-600 ml-2">
-                {/* {item.checkIn && item.checkOut && (
-                  <span>
-                    {formatDate(item.checkIn)} - {formatDate(item.checkOut)}
-                  </span>
-                )} */}
                 {(item.checkIn || item.checkOut) && " • "}
                 <span>
                   {item.adults + item.children} Guest
@@ -731,17 +822,54 @@ const HomePage: React.FC = () => {
                   searchParams.set('destination', destination.name);
                   navigate(`/hotel-search?${searchParams.toString()}`);
                 }}
-                className="relative group cursor-pointer overflow-hidden rounded-lg xs:rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 xs:hover:-translate-y-2"
+                className="relative group cursor-pointer overflow-hidden rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 bg-white border border-gray-100"
               >
-                <div
-                  className="h-40 xs:h-48 sm:h-64 bg-cover bg-center"
-                  style={{ backgroundImage: `url(${destination.image})` }}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                  <div className="absolute bottom-2 xs:bottom-3 sm:bottom-4 left-2 xs:left-3 sm:left-4 text-white px-1 xs:px-2">
-                    <h3 className="text-base xs:text-lg sm:text-xl font-bold">{destination.name}</h3>
-                    <p className="text-xs xs:text-sm text-gray-200">{destination.properties}</p>
+                {/* Image Container with Overlay */}
+                <div className="relative h-64 overflow-hidden">
+                  <img
+                    src={destination.image}
+                    alt={destination.name}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                  />
+                  
+                  {/* Gradient Overlays */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  
+                  {/* Decorative Corner Element */}
+                  <div className="absolute top-4 right-4">
+                    <div className="bg-white/20 backdrop-blur-md rounded-full p-2 border border-white/30">
+                      <MapPin className="h-5 w-5 text-white" />
+                    </div>
                   </div>
+                  
+                  {/* Property Count Badge */}
+                  <div className="absolute top-4 left-4">
+                    <div className="bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-lg">
+                      {destination.properties}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Content Section */}
+                <div className="absolute bottom-0 left-0 right-0 p-6">
+                  <div className="transform group-hover:translate-y-0 transition-transform duration-500">
+                    {/* Destination Name */}
+                    <h3 className="text-2xl font-bold text-white mb-2 drop-shadow-lg">
+                      {destination.name}
+                    </h3>
+                    
+                    {/* Call to Action */}
+                    <div className="flex items-center text-white/90 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                      <span>Explore Now</span>
+                      <ChevronRight className="h-4 w-4 ml-1 transform group-hover:translate-x-1 transition-transform duration-300" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hover Shine Effect */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent transform -skew-x-12 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
                 </div>
               </div>
             ))}
@@ -761,24 +889,50 @@ const HomePage: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 gap-4 xs:gap-6 sm:gap-8">
-            {propertyTypes.map((type, index) => (
-              <div
-                key={index}
-                onClick={() => {
-                  const searchParams = new URLSearchParams();
-                  searchParams.set('propertyType', type.name.toLowerCase().slice(0, -1));
-                  navigate(`/hotel-search?${searchParams.toString()}`);
-                }}
-                className="bg-white rounded-lg xs:rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 p-4 xs:p-6 sm:p-8 text-center group cursor-pointer hover:-translate-y-1"
+          {propertyTypes.length > 0 ? (
+            <div className="relative">
+              {/* Left Arrow */}
+              <button
+                onClick={() => scrollPropertyTypes('left')}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full p-2 xs:p-3 shadow-lg hover:shadow-xl transition-all duration-300 hover:bg-gray-50 -ml-2 xs:-ml-4"
+                aria-label="Scroll left"
               >
-                <div className="text-2xl xs:text-3xl sm:text-4xl mb-2 xs:mb-3 sm:mb-4">{type.icon}</div>
-                <h3 className="text-base xs:text-lg sm:text-xl font-bold text-gray-900 mb-1 xs:mb-2">{type.name}</h3>
-                <p className="text-xs xs:text-sm sm:text-base text-gray-600 mb-2 xs:mb-3 sm:mb-4 leading-relaxed">{type.description}</p>
-                <div className="text-sm xs:text-base text-blue-600 font-semibold">{type.count} properties</div>
+                <ChevronLeft className="h-5 w-5 xs:h-6 xs:w-6 text-gray-700" />
+              </button>
+
+              {/* Scrollable Container */}
+              <div
+                ref={propertyTypesRef}
+                className="flex gap-4 xs:gap-6 overflow-x-auto scrollbar-hide scroll-smooth px-8 xs:px-12"
+              >
+                {propertyTypes.map((type, index) => (
+                  <div
+                    key={index}
+                    onClick={() => handlePropertyTypeClick(type.type)}
+                    className="flex-shrink-0 w-64 xs:w-72 bg-white rounded-lg xs:rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 p-4 xs:p-6 sm:p-8 text-center group cursor-pointer hover:-translate-y-1"
+                  >
+                    <div className="text-3xl xs:text-4xl sm:text-5xl mb-2 xs:mb-3 sm:mb-4">{type.icon}</div>
+                    <h3 className="text-base xs:text-lg sm:text-xl font-bold text-gray-900 mb-1 xs:mb-2">{type.name}</h3>
+                    <div className="text-sm xs:text-base text-blue-600 font-semibold">{type.count}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+
+              {/* Right Arrow */}
+              <button
+                onClick={() => scrollPropertyTypes('right')}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full p-2 xs:p-3 shadow-lg hover:shadow-xl transition-all duration-300 hover:bg-gray-50 -mr-2 xs:-mr-4"
+                aria-label="Scroll right"
+              >
+                <ChevronRight className="h-5 w-5 xs:h-6 xs:w-6 text-gray-700" />
+              </button>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading property types...</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -801,122 +955,179 @@ const HomePage: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {featuredHotels.slice(0, 4).map((property, index) => (
-                <div
-                  key={property.id}
-                  className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group cursor-pointer border border-gray-100"
-                  onClick={() => {
-                    if (user) {
-                      navigate(`/booking/${property.id}`);
-                    } else {
-                      sessionStorage.setItem('redirectAfterLogin', `/booking/${property.id}`);
-                      navigate('/login');
-                    }
-                  }}
-                >
-                  <div className="relative h-48 overflow-hidden">
-                    <img
-                      src={property.images[0]}
-                      alt={property.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                    />
-                    
-                    {index === 0 && (
-                      <div className="absolute top-4 left-4">
-                        <span className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg">
-                          FEATURED
-                        </span>
-                      </div>
-                    )}
-                    
-                    <div className="absolute top-4 right-4">
-                      <span className="bg-blue-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-md">
-                        {property.type.charAt(0).toUpperCase() + property.type.slice(1)}
-                      </span>
-                    </div>
-                  </div>
+  {featuredHotels.slice(0, 4).map((property, index) => (
+    <div
+      key={property.id}
+      className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group cursor-pointer border border-gray-100"
+      onClick={() => {
+        navigate(`/hotel-details/${property.id}`, {
+          state: {
+            checkIn: searchData.checkIn,
+            checkOut: searchData.checkOut,
+            guests: searchData.guests + searchData.children,
+            rooms: searchData.rooms,
+          },
+        });
+      }}
+    >
+     {/* Image Section */}
+      <div className="relative h-48 overflow-hidden">
+        <img
+          src={property.images[0]}
+          alt={property.name}
+          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+        />
 
-                  <div className="p-6">
-                    <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-1">
-                      {property.name}
-                    </h3>
-                    
-                    <div className="flex items-center text-gray-600 mb-3">
-                      <MapPin className="h-4 w-4 mr-2 text-gray-400" />
-                      <span className="text-sm">{property.location}</span>
-                    </div>
+        {/* Featured Badge - Top Left */}
+        <div className="absolute top-4 left-4">
+          <div className="flex items-center gap-1 bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg">
+            <Star className="h-3 w-3 fill-current" />
+            <span>FEATURED</span>
+          </div>
+        </div>
 
-                    <div className="flex items-center justify-between text-sm text-gray-600 mb-4 bg-gray-50 rounded-lg p-3">
-                      <div className="flex items-center">
-                        <Users className="h-4 w-4 mr-1" />
-                        <span className="font-medium">{property.maxGuests}</span>
-                      </div>
-                      <div className="flex items-center">
-                        <Bed className="h-4 w-4 mr-1" />
-                        <span className="font-medium">{property.bedrooms}</span>
-                      </div>
-                      <div className="flex items-center">
-                        <Bath className="h-4 w-4 mr-1" />
-                        <span className="font-medium">{property.bathrooms}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center">
-                        <Star className="h-4 w-4 text-yellow-400 fill-current mr-1" />
-                        <span className="text-sm font-semibold text-gray-900">{property.rating.toFixed(1)}</span>
-                        <span className="text-xs text-gray-500 ml-1">(Excellent)</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xl font-bold text-gray-900">₹{property.price.toLocaleString()}</div>
-                        <div className="text-xs text-gray-500">per night</div>
-                      </div>
-                    </div>
-                    
-                    <div className="mb-4">
-                      <div className="flex flex-wrap gap-1">
-                        {property.amenities.slice(0, 3).map((amenity: string, amenityIndex: number) => (
-                          <span key={amenityIndex} className="inline-block px-2 py-1 rounded-md text-xs bg-blue-50 text-blue-700 font-medium">
-                            {amenity}
-                          </span>
-                        ))}
-                        {property.amenities.length > 3 && (
-                          <span className="inline-block px-2 py-1 rounded-md text-xs bg-gray-100 text-gray-600 font-medium">
-                            +{property.amenities.length - 3}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/hotel/${property.id}`);
-                        }}
-                        className="flex-1 bg-gray-600 text-white py-2 px-3 rounded-lg hover:bg-gray-700 transition-colors font-medium text-sm"
-                      >
-                        View Details
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (user) {
-                            navigate(`/booking/${property.id}`);
-                          } else {
-                            sessionStorage.setItem('redirectAfterLogin', `/booking/${property.id}`);
-                            navigate('/login');
-                          }
-                        }}
-                        className="flex-1 bg-blue-600 text-white py-2 px-3 rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
-                      >
-                        Book Now
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+        {/* Type Badge */}
+        <div className="absolute top-4 right-4">
+          <span className="bg-blue-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-md">
+            {property.type.charAt(0).toUpperCase() + property.type.slice(1)}
+          </span>
+        </div>
+      </div>
+
+      {/* Content Section */}
+      <div className="p-6">
+        {/* Hotel Name */}
+        <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-1">
+          {property.name}
+        </h3>
+
+        {/* Location */}
+        <div className="flex items-center text-gray-600 mb-3">
+          <MapPin className="h-4 w-4 mr-2 text-gray-400" />
+          <span className="text-sm">{property.location}</span>
+        </div>
+
+        {/* Details Row */}
+        <div className="flex items-center justify-between text-sm text-gray-600 mb-4 bg-gray-50 rounded-lg p-3">
+          <div className="flex items-center">
+            <Users className="h-4 w-4 mr-1" />
+            <span className="font-medium">{property.maxGuests}</span>
+          </div>
+          <div className="flex items-center">
+            <Bed className="h-4 w-4 mr-1" />
+            <span className="font-medium">{property.bedrooms}</span>
+          </div>
+          <div className="flex items-center">
+            <Bath className="h-4 w-4 mr-1" />
+            <span className="font-medium">{property.bathrooms}</span>
+          </div>
+        </div>
+
+        {/* Rating & Price */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center">
+            <Star className="h-4 w-4 text-yellow-400 fill-current mr-1" />
+            <span className="text-sm font-semibold text-gray-900">
+              {property.rating.toFixed(1)}
+            </span>
+            <span className="text-xs text-gray-500 ml-1">(Excellent)</span>
+          </div>
+          <div className="text-right">
+            <div className="text-xl font-bold text-gray-900">
+              ₹{property.price.toLocaleString()}
             </div>
+            <div className="text-xs text-gray-500">per night</div>
+          </div>
+        </div>
+
+        {/* Amenities */}
+        <div className="mb-4">
+          <div className="flex flex-wrap gap-1">
+            {property.amenities.slice(0, 3).map(
+              (amenity: string, amenityIndex: number) => (
+                <span
+                  key={amenityIndex}
+                  className="inline-block px-2 py-1 rounded-md text-xs bg-blue-50 text-blue-700 font-medium"
+                >
+                  {amenity}
+                </span>
+              )
+            )}
+            {property.amenities.length > 3 && (
+              <span className="inline-block px-2 py-1 rounded-md text-xs bg-gray-100 text-gray-600 font-medium">
+                +{property.amenities.length - 3}
+              </span>
+            )}
+          </div>
+        </div>
+
+{/* Action Buttons (Styled like Book Now in second block) */}
+                       <div className="flex gap-3">
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              console.log('Navigating to hotel details with ID:', property.id);
+                              navigate(`/hotel-details/${property.id}`, {
+                                state: {
+                                  property: property, // Pass the full property object
+                                  checkIn: searchData.checkIn,
+                                  checkOut: searchData.checkOut,
+                                  guests: searchData.guests + searchData.children,
+                                  rooms: searchData.rooms,
+                                },
+                              });
+                            }}
+                            className="w-1/2 bg-gray-600 text-white py-3 px-4 rounded-xl hover:bg-gray-700 transition-all duration-300 font-semibold shadow-md hover:shadow-lg transform hover:scale-105"
+                          >
+                            View Details
+                          </button>
+
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const totalGuests = searchData.guests + searchData.children;
+                              console.log('Book Now clicked for property:', property.id);
+
+                              if (user) {
+                                navigate(`/hotel-booking/${property.id}`, {
+                                  state: {
+                                    property: property, // Pass the full property object
+                                    checkIn: searchData.checkIn || '',
+                                    checkOut: searchData.checkOut || '',
+                                    guests: totalGuests,
+                                    rooms: searchData.rooms,
+                                  },
+                                });
+                              } else {
+                                sessionStorage.setItem(
+                                  'redirectAfterLogin',
+                                  `/hotel-booking/${property.id}`
+                                );
+                                sessionStorage.setItem(
+                                  'bookingData',
+                                  JSON.stringify({
+                                    property: property, // Store the full property object
+                                    checkIn: searchData.checkIn || '',
+                                    checkOut: searchData.checkOut || '',
+                                    guests: totalGuests,
+                                    rooms: searchData.rooms,
+                                  })
+                                );
+                                navigate('/login');
+                              }
+                            }}
+                            className="w-1/2 bg-blue-600 text-white py-3 px-4 rounded-xl hover:bg-blue-700 transition-all duration-300 font-semibold shadow-md hover:shadow-lg transform hover:scale-105"
+                          >
+                            Book Now
+                          </button>
+                        </div>
+      </div>
+    </div>
+  ))}
+</div>
+
           )}
           
           <div className="text-center mt-12">

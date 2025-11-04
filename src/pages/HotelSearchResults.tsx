@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, Calendar, Users, Star, MapPin, Filter, SlidersHorizontal, X, Heart, Share2, Bed, Bath, Wifi, Car, Coffee, Waves } from 'lucide-react';
+import { Search, Calendar, Users, Star, MapPin, Filter, SlidersHorizontal, X, Heart, Share2, Bed, Bath, Wifi, Car, Coffee, Waves, Plus, Minus } from 'lucide-react';
 import Header from '../components/Header';
 import DatePicker from '../components/DatePicker';
 import { useAuth } from '../context/AuthContext';
@@ -15,9 +15,28 @@ const HotelSearchResults: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [isGuestDropdownOpen, setIsGuestDropdownOpen] = useState(false);
+  const guestDropdownRef = useRef<HTMLDivElement>(null);
+  const isInitialMount = useRef(true);
 
   // Get search parameters from URL
-  const searchParams = new URLSearchParams(location.search);
+   const searchParams = new URLSearchParams(location.search);
+  
+    // Get property type from URL if present
+  const urlPropertyType = searchParams.get('propertyType')
+
+  // Initialize searchData state for guest dropdown
+    const [searchData, setSearchData] = useState({
+    destination: searchParams.get('destination') || '',
+    checkIn: searchParams.get('checkIn') || '',
+    checkOut: searchParams.get('checkOut') || '',
+    guests: parseInt(searchParams.get('guests') || '2'),
+    children: 0,
+    childrenAges: [] as number[],
+    rooms: parseInt(searchParams.get('rooms') || '1'),
+    pets: false
+  });
+
   const [searchFilters, setSearchFilters] = useState({
     destination: searchParams.get('destination') || '',
     checkIn: searchParams.get('checkIn') || '',
@@ -25,50 +44,126 @@ const HotelSearchResults: React.FC = () => {
     guests: parseInt(searchParams.get('guests') || '2'),
     rooms: parseInt(searchParams.get('rooms') || '1'),
     priceRange: [500, 15000] as [number, number],
-    propertyType: [] as string[],
+    propertyType: urlPropertyType ? [urlPropertyType] : [],
     rating: 0,
     amenities: [] as string[],
     sortBy: 'price_asc' as 'price_asc' | 'price_desc' | 'rating' | 'name'
   });
 
-  // Search hotels when component mounts and when non-text filters change
-  useEffect(() => {
-    // Only search immediately for non-text filters or initial load
-    const isTextFilter = false; // This effect handles non-text filters
-    searchHotels();
-  }, [
-    searchFilters.checkIn,
-    searchFilters.checkOut,
-    searchFilters.guests,
-    searchFilters.rooms,
-    searchFilters.priceRange,
-    searchFilters.propertyType,
-    searchFilters.rating,
-    searchFilters.amenities,
-    searchFilters.sortBy
-  ]);
+  // Calculate total guests
+  const totalGuests = searchData.guests + searchData.children;
 
-  // Separate effect for destination search with debouncing
-  useEffect(() => {
-    // Clear existing timeout
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
+  // Update guest values
+ // Update guest values
+const updateGuestValue = (field: 'guests' | 'children' | 'rooms', delta: number) => {
+  setSearchData(prev => {
+    const currentValue = prev[field];
+    const newValue = Math.max(field === 'guests' ? 1 : field === 'rooms' ? 1 : 0, currentValue + delta);
+    
+    // If reducing children, also reduce childrenAges array
+    if (field === 'children' && delta < 0) {
+      return {
+        ...prev,
+        [field]: newValue,
+        childrenAges: prev.childrenAges.slice(0, newValue)
+      };
     }
+    
+    return {
+      ...prev,
+      [field]: newValue
+    };
+  });
+  
+  // Update searchFilters for API call
+  if (field === 'guests') {
+    setSearchFilters(prev => ({
+      ...prev,
+      guests: Math.max(1, searchData.guests + delta)
+    }));
+  } else if (field === 'rooms') {
+    setSearchFilters(prev => ({
+      ...prev,
+      rooms: Math.max(1, searchData.rooms + delta)
+    }));
+  }
+};
 
-    // Set new timeout for destination search
-    const timeout = setTimeout(() => {
-      searchHotels();
-    }, 500); // 500ms delay
+  // Update child age
+  const updateChildAge = (index: number, age: number) => {
+    setSearchData(prev => {
+      const newAges = [...prev.childrenAges];
+      newAges[index] = age;
+      return {
+        ...prev,
+        childrenAges: newAges
+      };
+    });
+  };
 
-    setSearchTimeout(timeout);
-
-    // Cleanup timeout on unmount
-    return () => {
-      if (timeout) {
-        clearTimeout(timeout);
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (guestDropdownRef.current && !guestDropdownRef.current.contains(event.target as Node)) {
+        setIsGuestDropdownOpen(false);
       }
     };
-  }, [searchFilters.destination]);
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Search hotels when component mounts and when non-text filters change
+  // Search hotels when component mounts and when non-text filters change
+// Search hotels when component mounts and when filters change
+useEffect(() => {
+  // Skip initial mount to prevent double search
+  if (isInitialMount.current) {
+    isInitialMount.current = false;
+    searchHotels();
+    return;
+  }
+  
+  searchHotels();
+}, [
+  searchFilters.checkIn,
+  searchFilters.checkOut,
+  searchFilters.guests,
+  searchFilters.rooms,
+  JSON.stringify(searchFilters.priceRange), // Stringify array to avoid reference issues
+  JSON.stringify(searchFilters.propertyType),
+  searchFilters.rating,
+  JSON.stringify(searchFilters.amenities),
+  searchFilters.sortBy
+]);
+
+  // Separate effect for destination search with debouncing
+// Separate effect for destination search with debouncing
+useEffect(() => {
+  // Don't search on initial mount if destination is empty
+  if (!searchFilters.destination && hotels.length === 0) {
+    return;
+  }
+
+  // Clear existing timeout
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+  }
+
+  // Set new timeout for destination search
+  const timeout = setTimeout(() => {
+    searchHotels();
+  }, 500); // 500ms delay
+
+  setSearchTimeout(timeout);
+
+  // Cleanup timeout on unmount or when destination changes
+  return () => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  };
+}, [searchFilters.destination]); // Only depend on destination
 
   const searchHotels = async () => {
     // Only show loading for initial search or major filter changes
@@ -117,69 +212,17 @@ const HotelSearchResults: React.FC = () => {
         setHotels(transformedHotels);
       } else {
         console.error('Failed to search hotels:', result.error);
-        // Use fallback mock data if database fails
-        setHotels(getMockHotels());
+        setError('No hotels found. Try adjusting your search criteria.');
+        setHotels([]);
       }
     } catch (error) {
       console.error('Error searching hotels:', error);
       setError('Failed to search hotels. Please try again.');
-      setHotels(getMockHotels());
+      setHotels([]);
     } finally {
       setLoading(false);
     }
   };
-
-  // Fallback mock data
-  const getMockHotels = () => [
-    {
-      id: '1',
-      name: 'Taj Palace Mumbai',
-      location: 'Mumbai, Maharashtra',
-      price: 8500,
-      rating: 4.8,
-      images: ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
-      amenities: ['Free WiFi', 'Swimming Pool', 'Spa & Wellness', 'Restaurant'],
-      type: 'hotel',
-      description: 'Luxury hotel in the heart of Mumbai',
-      available: true,
-      maxGuests: 4,
-      bedrooms: 2,
-      bathrooms: 2,
-      owner: 'Taj Hotels'
-    },
-    {
-      id: '2',
-      name: 'Goa Beach Resort',
-      location: 'Goa',
-      price: 6200,
-      rating: 4.5,
-      images: ['https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg'],
-      amenities: ['Beach Access', 'Swimming Pool', 'Restaurant', 'Bar/Lounge'],
-      type: 'resort',
-      description: 'Beachfront resort with stunning ocean views',
-      available: true,
-      maxGuests: 6,
-      bedrooms: 3,
-      bathrooms: 2,
-      owner: 'Beach Resorts Ltd'
-    },
-    {
-      id: '3',
-      name: 'Kerala Homestay',
-      location: 'Munnar, Kerala',
-      price: 3500,
-      rating: 4.3,
-      images: ['https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg'],
-      amenities: ['Kitchen Access', 'Garden', 'Mountain View'],
-      type: 'homestay',
-      description: 'Traditional Kerala home amidst tea plantations',
-      available: true,
-      maxGuests: 4,
-      bedrooms: 2,
-      bathrooms: 1,
-      owner: 'Local Family'
-    }
-  ];
 
   const handleFilterChange = (filterType: string, value: any) => {
     setSearchFilters(prev => ({
@@ -199,14 +242,47 @@ const HotelSearchResults: React.FC = () => {
     }));
   };
 
-  const handleBookNow = (hotel: any) => {
-    if (user) {
-      navigate(`/hotel-booking/${hotel.id}`);
-    } else {
-      sessionStorage.setItem('redirectAfterLogin', `/hotel-booking/${hotel.id}`);
-      navigate('/login');
-    }
+ const handleViewDetails = (hotelId: string) => {
+    // Navigate to hotel details page - route should be /hotel-details/:hotelId
+    navigate(`/hotel-details/${hotelId}`, {
+      state: {
+        checkIn: searchFilters.checkIn,
+        checkOut: searchFilters.checkOut,
+        guests: searchFilters.guests,
+        rooms: searchFilters.rooms
+      }
+    });
   };
+
+  const handleBookNow = (hotel: any) => {
+  // Validate booking data before proceeding
+  if (!searchFilters.checkIn || !searchFilters.checkOut) {
+    alert('Please select check-in and check-out dates');
+    return;
+  }
+
+  if (user) {
+    // User is logged in, proceed to booking
+    navigate(`/hotel-booking/${hotel.id}`, {
+      state: {
+        checkIn: searchFilters.checkIn,
+        checkOut: searchFilters.checkOut,
+        guests: searchFilters.guests,
+        rooms: searchFilters.rooms
+      }
+    });
+  } else {
+    // User not logged in, save booking intent and redirect to login
+    sessionStorage.setItem('redirectAfterLogin', `/hotel-booking/${hotel.id}`);
+    sessionStorage.setItem('bookingData', JSON.stringify({
+      checkIn: searchFilters.checkIn,
+      checkOut: searchFilters.checkOut,
+      guests: searchFilters.guests,
+      rooms: searchFilters.rooms
+    }));
+    navigate('/login');
+  }
+};
 
   const getAmenityIcon = (amenity: string) => {
     const iconMap: { [key: string]: React.ReactNode } = {
@@ -268,26 +344,151 @@ const HotelSearchResults: React.FC = () => {
               </div>
 
               {/* Guests & Rooms */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Guests & Rooms</label>
+              <div ref={guestDropdownRef}>
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">Guests & Rooms</label>
                 <div className="relative">
-                  <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-                  <select
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 appearance-none"
-                    value={`${searchFilters.guests}-${searchFilters.rooms}`}
-                    onChange={(e) => {
-                      const [guests, rooms] = e.target.value.split('-').map(Number);
-                      handleFilterChange('guests', guests);
-                      handleFilterChange('rooms', rooms);
-                    }}
+                  <Users className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 sm:h-5 sm:w-5 pointer-events-none z-10" />
+                  <button
+                    type="button"
+                    onClick={() => setIsGuestDropdownOpen(!isGuestDropdownOpen)}
+                    className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 text-left text-sm bg-white hover:bg-gray-50 transition-colors"
                   >
-                    <option value="1-1">1 Guest, 1 Room</option>
-                    <option value="2-1">2 Guests, 1 Room</option>
-                    <option value="3-1">3 Guests, 1 Room</option>
-                    <option value="4-1">4 Guests, 1 Room</option>
-                    <option value="4-2">4 Guests, 2 Rooms</option>
-                    <option value="6-2">6 Guests, 2 Rooms</option>
-                  </select>
+                    {totalGuests} Guest{totalGuests !== 1 ? 's' : ''}, {searchData.rooms} Room{searchData.rooms !== 1 ? 's' : ''}
+                  </button>
+
+                  {/* Dropdown Panel */}
+                  {isGuestDropdownOpen && (
+                    <div className="absolute z-50 mt-2 w-full min-w-[300px] bg-white border border-gray-200 rounded-lg shadow-xl p-4">
+                      {/* Adults */}
+                      <div className="flex items-center justify-between py-3 border-b border-gray-200">
+                        <span className="text-gray-900 font-medium text-sm">Adults</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('guests', -1)}
+                            disabled={searchData.guests <= 1}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <Minus className="h-4 w-4 text-gray-600" />
+                          </button>
+                          <span className="text-gray-900 font-medium w-6 text-center">
+                            {searchData.guests}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('guests', 1)}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <Plus className="h-4 w-4 text-blue-600" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Children */}
+                      <div className="py-3 border-b border-gray-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-gray-900 font-medium text-sm">Children</span>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('children', -1)}
+                              disabled={searchData.children <= 0}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <Minus className="h-4 w-4 text-gray-600" />
+                            </button>
+                            <span className="text-gray-900 font-medium w-6 text-center">
+                              {searchData.children}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('children', 1)}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              <Plus className="h-4 w-4 text-blue-600" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Age Selectors for Children */}
+                        {searchData.children > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {Array.from({ length: searchData.children }).map((_, index) => (
+                              <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                                <span className="text-sm text-gray-700">Child {index + 1} age</span>
+                                <select
+                                  value={searchData.childrenAges[index] || 5}
+                                  onChange={(e) => updateChildAge(index, Number(e.target.value))}
+                                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                                >
+                                  {Array.from({ length: 15 }, (_, i) => i + 1).map((age) => (
+                                    <option key={age} value={age}>
+                                      {age} {age === 1 ? 'year' : 'years'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))}
+                            <p className="text-xs text-gray-600 mt-2">
+                              To find you a place to stay that fits your entire group along with correct prices, we need to know how old your child will be at check-out
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Rooms */}
+                      <div className="flex items-center justify-between py-3 border-b border-gray-200">
+                        <span className="text-gray-900 font-medium text-sm">Rooms</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('rooms', -1)}
+                            disabled={searchData.rooms <= 1}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <Minus className="h-4 w-4 text-gray-600" />
+                          </button>
+                          <span className="text-gray-900 font-medium w-6 text-center">
+                            {searchData.rooms}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateGuestValue('rooms', 1)}
+                            className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <Plus className="h-4 w-4 text-blue-600" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Pets Toggle */}
+                      <div className="flex items-center justify-between py-3">
+                        <span className="text-gray-900 text-sm">Travelling with pets?</span>
+                        <button
+                          type="button"
+                          onClick={() => setSearchData(prev => ({ ...prev, pets: !prev.pets }))}
+                          className={`relative w-11 h-6 rounded-full transition-colors ${
+                            searchData.pets ? 'bg-gray-500' : 'bg-gray-300'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                              searchData.pets ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Done Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsGuestDropdownOpen(false)}
+                        className="w-full py-2.5 text-blue-600 font-medium border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors text-sm"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -476,11 +677,13 @@ const HotelSearchResults: React.FC = () => {
                     {hotels.map((hotel) => (
                       <div
                         key={hotel.id}
-                        className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group cursor-pointer"
-                        onClick={() => navigate(`/hotel/${hotel.id}`)}
+                        className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group"
                       >
                         {/* Hotel Image */}
-                        <div className="relative h-64">
+                        <div 
+                          className="relative h-64 cursor-pointer"
+                          onClick={() => handleViewDetails(hotel.id)}
+                        >
                           <img
                             src={hotel.images[0]}
                             alt={hotel.name}
@@ -496,10 +699,16 @@ const HotelSearchResults: React.FC = () => {
 
                           {/* Action Buttons */}
                           <div className="absolute top-4 left-4 flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button className="bg-white/80 p-2 rounded-full hover:bg-white transition-colors">
+                            <button 
+                              onClick={(e) => e.stopPropagation()}
+                              className="bg-white/80 p-2 rounded-full hover:bg-white transition-colors"
+                            >
                               <Heart className="h-4 w-4 text-gray-600" />
                             </button>
-                            <button className="bg-white/80 p-2 rounded-full hover:bg-white transition-colors">
+                            <button 
+                              onClick={(e) => e.stopPropagation()}
+                              className="bg-white/80 p-2 rounded-full hover:bg-white transition-colors"
+                            >
                               <Share2 className="h-4 w-4 text-gray-600" />
                             </button>
                           </div>
@@ -560,19 +769,13 @@ const HotelSearchResults: React.FC = () => {
                           {/* Action Buttons */}
                           <div className="flex space-x-3">
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/hotel/${hotel.id}`);
-                              }}
+                              onClick={() => handleViewDetails(hotel.id)}
                               className="flex-1 bg-gray-600 text-white py-3 px-4 rounded-lg hover:bg-gray-700 transition-colors font-medium"
                             >
                               View Details
                             </button>
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleBookNow(hotel);
-                              }}
+                              onClick={() => handleBookNow(hotel)}
                               className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
                             >
                               Book Now

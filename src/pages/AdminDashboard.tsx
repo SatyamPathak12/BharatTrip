@@ -40,6 +40,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { propertyService, Property } from '../lib/propertyService';
 import AdminPopularDestinationManagement from './AdminPopularDestinationManagement';
+import AdminPropertyLimits from '../components/AdminPropertyLimits';
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -67,15 +68,15 @@ const AdminDashboard: React.FC = () => {
 
   const currentPath = location.pathname;
 
-const sidebarItems = [
-  { path: '/admin', label: 'Dashboard', icon: BarChart3 },
-  { path: '/admin/users', label: 'User Management', icon: Users },
-  { path: '/admin/properties', label: 'Property Management', icon: Building2 },
-  { path: '/admin/tours', label: 'Tour Management', icon: MapPin },
-  { path: '/admin/popular-destinations', label: 'Popular Destinations', icon: MapPin },
-  { path: '/admin/settings', label: 'Settings', icon: Settings },
-];
-
+  const sidebarItems = [
+    { path: '/admin', label: 'Dashboard', icon: BarChart3 },
+    { path: '/admin/users', label: 'User Management', icon: Users },
+    { path: '/admin/properties', label: 'Property Management', icon: Building2 },
+    { path: '/admin/tours', label: 'Tour Management', icon: MapPin },
+    { path: '/admin/popular-destinations', label: 'Popular Destinations', icon: MapPin },
+    { path: '/admin/settings', label: 'Settings', icon: Settings },
+    { path: '/admin/property-limits', label: 'Property Limits', icon: Settings },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50 pt-16">
@@ -117,6 +118,7 @@ const sidebarItems = [
             <Route path="/properties" element={<PropertyManagement />} />
             <Route path="/settings" element={<AdminSettings />} />
             <Route path="/popular-destinations" element={<AdminPopularDestinationManagement />} />
+            <Route path="/property-limits" element={<AdminPropertyLimits />} />
           </Routes>
         </main>
       </div>
@@ -727,6 +729,29 @@ const PropertyManagement: React.FC = () => {
     }
   };
 
+  const toggleFeaturedStatus = async (propertyId: string, currentStatus: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('properties')
+        .update({ is_featured: !currentStatus })
+        .eq('id', propertyId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update local state
+      setProperties(properties.map(prop => 
+        prop.id === propertyId ? { ...prop, is_featured: !currentStatus } : prop
+      ));
+      
+      alert(`Property ${!currentStatus ? 'added to' : 'removed from'} featured listings`);
+    } catch (err: any) {
+      console.error('Error updating featured status:', err);
+      alert(`Failed to update featured status: ${err.message}`);
+    }
+  };
+
   const filteredProperties = properties.filter(property => {
     const matchesSearch = property.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          property.location.toLowerCase().includes(searchTerm.toLowerCase());
@@ -823,7 +848,7 @@ const PropertyManagement: React.FC = () => {
                   alt={property.name}
                   className="w-full h-48 object-cover"
                 />
-                <div className="absolute top-4 right-4">
+                <div className="absolute top-4 right-4 flex flex-col gap-2">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                     property.status === 'approved' ? 'bg-green-100 text-green-800' :
                     property.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -832,6 +857,12 @@ const PropertyManagement: React.FC = () => {
                   }`}>
                     {property.status.replace('_', ' ').toUpperCase()}
                   </span>
+                  {property.is_featured && (
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 flex items-center gap-1">
+                      <Star className="h-3 w-3 fill-current" />
+                      Featured
+                    </span>
+                  )}
                 </div>
               </div>
               
@@ -865,48 +896,63 @@ const PropertyManagement: React.FC = () => {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="mt-4 flex space-x-2">
-                  {property.status === 'pending' && (
-                    <>
+                <div className="mt-4 space-y-2">
+                  <div className="flex space-x-2">
+                    {property.status === 'pending' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            const notes = prompt('Approval notes (optional):');
+                            updatePropertyStatus(property.id, 'approved', notes || undefined);
+                          }}
+                          className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => {
+                            const notes = prompt('Rejection reason:');
+                            if (notes) updatePropertyStatus(property.id, 'rejected', notes);
+                          }}
+                          className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {property.status === 'approved' && (
                       <button
                         onClick={() => {
-                          const notes = prompt('Approval notes (optional):');
-                          updatePropertyStatus(property.id, 'approved', notes || undefined);
+                          const notes = prompt('Review notes:');
+                          if (notes) updatePropertyStatus(property.id, 'under_review', notes);
                         }}
-                        className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                        className="flex-1 bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
                       >
-                        Approve
+                        Review Again
                       </button>
-                      <button
-                        onClick={() => {
-                          const notes = prompt('Rejection reason:');
-                          if (notes) updatePropertyStatus(property.id, 'rejected', notes);
-                        }}
-                        className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
-                  {property.status === 'approved' && (
-                    <button
+                    )}
+                    <button 
                       onClick={() => {
-                        const notes = prompt('Review notes:');
-                        if (notes) updatePropertyStatus(property.id, 'under_review', notes);
+                        setSelectedProperty(property);
+                        setShowDetailsModal(true);
                       }}
-                      className="flex-1 bg-orange-600 text-white py-2 px-4 rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
+                      className="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                     >
-                      Review Again
+                      View Details
                     </button>
-                  )}
-                  <button 
-                    onClick={() => {
-                      setSelectedProperty(property);
-                      setShowDetailsModal(true);
-                    }}
-                    className="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                  </div>
+                  
+                  {/* Featured Toggle Button */}
+                  <button
+                    onClick={() => toggleFeaturedStatus(property.id, property.is_featured || false)}
+                    className={`w-full flex items-center justify-center space-x-2 py-2 px-4 rounded-lg transition-colors text-sm font-medium ${
+                      property.is_featured
+                        ? 'bg-purple-100 text-purple-700 hover:bg-purple-200 border border-purple-300'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                    }`}
                   >
-                    View Details
+                    <Star className={`h-4 w-4 ${property.is_featured ? 'fill-current' : ''}`} />
+                    <span>{property.is_featured ? 'Remove from Featured' : 'Mark as Featured'}</span>
                   </button>
                 </div>
 
@@ -1008,14 +1054,22 @@ const PropertyManagement: React.FC = () => {
                   </div>
                   <div>
                     <h5 className="font-semibold text-gray-900 mb-2">Status</h5>
-                    <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                      selectedProperty.status === 'approved' ? 'bg-green-100 text-green-800' :
-                      selectedProperty.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      selectedProperty.status === 'under_review' ? 'bg-blue-100 text-blue-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {selectedProperty.status.replace('_', ' ').toUpperCase()}
-                    </span>
+                    <div className="flex flex-col gap-2">
+                      <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                        selectedProperty.status === 'approved' ? 'bg-green-100 text-green-800' :
+                        selectedProperty.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        selectedProperty.status === 'under_review' ? 'bg-blue-100 text-blue-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {selectedProperty.status.replace('_', ' ').toUpperCase()}
+                      </span>
+                      {selectedProperty.is_featured && (
+                        <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 flex items-center gap-1 w-fit">
+                          <Star className="h-3 w-3 fill-current" />
+                          Featured Property
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1038,55 +1092,76 @@ const PropertyManagement: React.FC = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="mt-6 flex space-x-3 pt-6 border-t border-gray-200">
-                {selectedProperty.status === 'pending' && (
-                  <>
+              <div className="mt-6 space-y-3 pt-6 border-t border-gray-200">
+                <div className="flex space-x-3">
+                  {selectedProperty.status === 'pending' && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const notes = prompt('Approval notes (optional):');
+                          updatePropertyStatus(selectedProperty.id, 'approved', notes || undefined);
+                          setShowDetailsModal(false);
+                        }}
+                        className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-medium"
+                      >
+                        Approve Property
+                      </button>
+                      <button
+                        onClick={() => {
+                          const notes = prompt('Rejection reason:');
+                          if (notes) {
+                            updatePropertyStatus(selectedProperty.id, 'rejected', notes);
+                            setShowDetailsModal(false);
+                          }
+                        }}
+                        className="flex-1 bg-red-600 text-white py-3 px-4 rounded-lg hover:bg-red-700 transition-colors font-medium"
+                      >
+                        Reject Property
+                      </button>
+                    </>
+                  )}
+                  {selectedProperty.status === 'approved' && (
                     <button
                       onClick={() => {
-                        const notes = prompt('Approval notes (optional):');
-                        updatePropertyStatus(selectedProperty.id, 'approved', notes || undefined);
-                        setShowDetailsModal(false);
-                      }}
-                      className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition-colors font-medium"
-                    >
-                      Approve Property
-                    </button>
-                    <button
-                      onClick={() => {
-                        const notes = prompt('Rejection reason:');
+                        const notes = prompt('Review notes:');
                         if (notes) {
-                          updatePropertyStatus(selectedProperty.id, 'rejected', notes);
+                          updatePropertyStatus(selectedProperty.id, 'under_review', notes);
                           setShowDetailsModal(false);
                         }
                       }}
-                      className="flex-1 bg-red-600 text-white py-3 px-4 rounded-lg hover:bg-red-700 transition-colors font-medium"
+                      className="flex-1 bg-orange-600 text-white py-3 px-4 rounded-lg hover:bg-orange-700 transition-colors font-medium"
                     >
-                      Reject Property
+                      Review Again
                     </button>
-                  </>
-                )}
-                {selectedProperty.status === 'approved' && (
+                  )}
                   <button
                     onClick={() => {
-                      const notes = prompt('Review notes:');
-                      if (notes) {
-                        updatePropertyStatus(selectedProperty.id, 'under_review', notes);
-                        setShowDetailsModal(false);
-                      }
+                      setShowDetailsModal(false);
+                      setSelectedProperty(null);
                     }}
-                    className="flex-1 bg-orange-600 text-white py-3 px-4 rounded-lg hover:bg-orange-700 transition-colors font-medium"
+                    className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
                   >
-                    Review Again
+                    Close
                   </button>
-                )}
+                </div>
+                
+                {/* Featured Toggle in Modal */}
                 <button
                   onClick={() => {
-                    setShowDetailsModal(false);
-                    setSelectedProperty(null);
+                    toggleFeaturedStatus(selectedProperty.id, selectedProperty.is_featured || false);
+                    setSelectedProperty({
+                      ...selectedProperty,
+                      is_featured: !selectedProperty.is_featured
+                    });
                   }}
-                  className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                  className={`w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-lg transition-colors font-medium ${
+                    selectedProperty.is_featured
+                      ? 'bg-purple-100 text-purple-700 hover:bg-purple-200 border border-purple-300'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                  }`}
                 >
-                  Close
+                  <Star className={`h-5 w-5 ${selectedProperty.is_featured ? 'fill-current' : ''}`} />
+                  <span>{selectedProperty.is_featured ? 'Remove from Featured Listings' : 'Mark as Featured Property'}</span>
                 </button>
               </div>
             </div>

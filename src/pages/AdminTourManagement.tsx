@@ -234,6 +234,7 @@ const TourFormModal: React.FC<{
     title: tour?.title || '',
     location: tour?.location || '',
     duration: tour?.duration || '',
+    date: tour?.date ? new Date(tour.date).toISOString().split('T')[0] : '',
     price: tour?.price || 0,
     original_price: tour?.original_price || 0,
     description: tour?.description || '',
@@ -275,6 +276,7 @@ const TourFormModal: React.FC<{
         if (!formData.title.trim()) errors.push('Tour title is required');
         if (!formData.location.trim()) errors.push('Location is required');
         if (!formData.duration.trim()) errors.push('Duration is required');
+        if (!formData.date.trim()) errors.push('Tour date is required');
         if (!formData.group_size.trim()) errors.push('Group size is required');
         if (!formData.description.trim()) errors.push('Description is required');
         if (formData.price <= 0) errors.push('Price must be greater than 0');
@@ -612,6 +614,16 @@ const TourFormModal: React.FC<{
                       onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
                     />
                   </div>
+                  <div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Tour Date *</label>
+  <input
+    type="date"
+    required
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+    value={formData.date}
+    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+  />
+</div>
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Group Size *</label>
@@ -924,7 +936,8 @@ const TourFormModal: React.FC<{
                         type="button"
                         onClick={addInclude}
                         disabled={!newInclude.trim()}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                                                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+
                       >
                         Add
                       </button>
@@ -961,7 +974,8 @@ const TourFormModal: React.FC<{
                         type="button"
                         onClick={addExclude}
                         disabled={!newExclude.trim()}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                                               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+
                       >
                         Add
                       </button>

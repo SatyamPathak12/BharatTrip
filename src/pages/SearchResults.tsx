@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Calendar, Users, Star, MapPin, Wifi, Car, Coffee, Waves, Bed, Bath } from 'lucide-react';
+import { Search, Calendar, Users, Star, MapPin, Wifi, Car, Coffee, Waves, Bed, Bath, Minus, Plus } from 'lucide-react';
 import Header from '../components/Header';
 import DatePicker from '../components/DatePicker';
 import { useBooking } from '../context/BookingContext';
@@ -9,37 +9,69 @@ import { hotelService } from '../lib/hotelService';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, sendMagicLink } = useAuth();
-  const { updateSearchFilters, searchHotels } = useBooking();
-  const [featuredHotels, setFeaturedHotels] = useState<any[]>([]);
+  const { user } = useAuth();
+  const [allHotels, setAllHotels] = useState<any[]>([]);
+  const [displayedHotels, setDisplayedHotels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isGuestDropdownOpen, setIsGuestDropdownOpen] = useState(false);
+  const guestDropdownRef = useRef<HTMLDivElement>(null);
+
   const [searchData, setSearchData] = useState({
     destination: '',
     checkIn: '',
     checkOut: '',
     guests: 2,
+    children: 0,
+    childrenAges: [] as number[],
     rooms: 1,
+    pets: false
   });
 
-  // Fetch featured hotels from database
+  const totalGuests = searchData.guests + searchData.children;
+
+  const updateGuestValue = (field: 'guests' | 'children' | 'rooms', delta: number) => {
+    setSearchData(prev => {
+      const newValue = Math.max(field === 'guests' ? 1 : field === 'rooms' ? 1 : 0, prev[field] + delta);
+      if (field === 'children' && delta < 0) {
+        return { ...prev, [field]: newValue, childrenAges: prev.childrenAges.slice(0, newValue) };
+      }
+      return { ...prev, [field]: newValue };
+    });
+  };
+
+  const updateChildAge = (index: number, age: number) => {
+    setSearchData(prev => {
+      const newAges = [...prev.childrenAges];
+      newAges[index] = age;
+      return { ...prev, childrenAges: newAges };
+    });
+  };
+
   useEffect(() => {
-    const fetchFeaturedHotels = async () => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (guestDropdownRef.current && !guestDropdownRef.current.contains(event.target as Node)) {
+        setIsGuestDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const fetchAllHotels = async () => {
       setLoading(true);
+      setError(null);
       try {
-        console.log('Fetching featured hotels...');
-        const result = await hotelService.getFeaturedHotels(4);
-        
+        const result = await hotelService.getAllApprovedHotels();
         if (result.success && result.hotels) {
-          // Transform database hotels to match UI format
           const transformedHotels = result.hotels.map(hotel => ({
             id: hotel.id,
             name: hotel.name,
             location: hotel.location,
             price: hotel.price_per_night,
             rating: 4.0 + Math.random() * 0.9,
-            images: hotel.images && hotel.images.length > 0 
-              ? hotel.images 
-              : ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
+            images: hotel.images && hotel.images.length > 0 ? hotel.images : ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
             amenities: hotel.amenities || [],
             type: hotel.property_type,
             description: hotel.description,
@@ -48,156 +80,67 @@ const HomePage: React.FC = () => {
             maxGuests: hotel.max_guests,
             bedrooms: hotel.bedrooms,
             bathrooms: hotel.bathrooms,
-            owner: hotel.user?.name || 'Property Owner'
+            owner: hotel.user?.name || 'Property Owner',
+            featured: hotel.featured || false
           }));
-
-          setFeaturedHotels(transformedHotels);
+          const sortedHotels = transformedHotels.sort((a, b) => {
+            if (a.featured && !b.featured) return -1;
+            if (!a.featured && b.featured) return 1;
+            return b.commission - a.commission;
+          });
+          setAllHotels(sortedHotels);
+          setDisplayedHotels(sortedHotels.slice(0, 8));
         } else {
-          console.error('Failed to fetch featured hotels:', result.error);
-          // Use fallback mock data if database fails
-          setFeaturedHotels(getMockProperties());
+          const mockHotels = getMockHotels();
+          setAllHotels(mockHotels);
+          setDisplayedHotels(mockHotels.slice(0, 8));
         }
       } catch (error) {
-        console.error('Error fetching featured hotels:', error);
-        setFeaturedHotels(getMockProperties());
+        const mockHotels = getMockHotels();
+        setAllHotels(mockHotels);
+        setDisplayedHotels(mockHotels.slice(0, 8));
       } finally {
         setLoading(false);
       }
     };
-
-    fetchFeaturedHotels();
+    fetchAllHotels();
   }, []);
 
-  // Fallback mock data if database is not available
-  const getMockProperties = () => [
-    {
-      id: '1',
-      name: 'Taj Palace Mumbai',
-      location: 'Mumbai, Maharashtra',
-      price: 8500,
-      rating: 4.5,
-      images: ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'],
-      amenities: ['WiFi', 'Pool', 'Spa', 'Restaurant'],
-      type: 'hotel',
-      description: 'Luxury hotel in the heart of Mumbai',
-      available: true,
-      commission: 18,
-      maxGuests: 4,
-      bedrooms: 2,
-      bathrooms: 2,
-      owner: 'Taj Hotels'
-    },
-    {
-      id: '2',
-      name: 'Goa Beach Resort',
-      location: 'Goa',
-      price: 6500,
-      rating: 4.2,
-      images: ['https://images.pexels.com/photos/1007657/pexels-photo-1007657.jpeg'],
-      amenities: ['Beach Access', 'Pool', 'Restaurant', 'Water Sports'],
-      type: 'resort',
-      description: 'Beautiful beachfront resort in Goa',
-      available: true,
-      commission: 15,
-      maxGuests: 6,
-      bedrooms: 3,
-      bathrooms: 2,
-      owner: 'Beach Resorts Ltd'
-    },
-    {
-      id: '3',
-      name: 'Kerala Homestay',
-      location: 'Munnar, Kerala',
-      price: 3500,
-      rating: 4.3,
-      images: ['https://images.pexels.com/photos/962464/pexels-photo-962464.jpeg'],
-      amenities: ['Kitchen Access', 'Garden', 'Mountain View'],
-      type: 'homestay',
-      description: 'Traditional Kerala home amidst tea plantations',
-      available: true,
-      commission: 12,
-      maxGuests: 4,
-      bedrooms: 2,
-      bathrooms: 1,
-      owner: 'Local Family'
-    },
-    {
-      id: '4',
-      name: 'Rajasthan Palace Hotel',
-      location: 'Udaipur, Rajasthan',
-      price: 12000,
-      rating: 4.7,
-      images: ['https://images.pexels.com/photos/3581364/pexels-photo-3581364.jpeg'],
-      amenities: ['Heritage Architecture', 'Royal Dining', 'Spa', 'Cultural Shows'],
-      type: 'hotel',
-      description: 'Historic palace hotel with royal heritage',
-      available: true,
-      commission: 20,
-      maxGuests: 8,
-      bedrooms: 4,
-      bathrooms: 3,
-      owner: 'Royal Heritage Hotels'
-    }
-  ].sort((a, b) => b.commission - a.commission);
+  const getMockHotels = () => [
+    { id: '1', name: 'Taj Palace Mumbai', location: 'Mumbai, Maharashtra', price: 8500, rating: 4.8, images: ['https://images.pexels.com/photos/338504/pexels-photo-338504.jpeg'], amenities: ['Wi-Fi', 'Swimming Pool', 'Spa', 'Restaurant'], type: 'hotel', description: 'Luxury hotel in the heart of Mumbai', available: true, commission: 18, maxGuests: 4, bedrooms: 2, bathrooms: 2, owner: 'Taj Hotels', featured: true },
+    { id: '2', name: 'Goa Beach Resort', location: 'Goa', price: 6200, rating: 4.5, images: ['https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg'], amenities: ['Beach Access', 'Pool', 'Restaurant', 'Bar'], type: 'resort', description: 'Beachfront resort with stunning ocean views', available: true, commission: 15, maxGuests: 6, bedrooms: 3, bathrooms: 2, owner: 'Beach Resorts Ltd', featured: false },
+    { id: '3', name: 'Kerala Homestay', location: 'Munnar, Kerala', price: 3500, rating: 4.3, images: ['https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg'], amenities: ['Kitchen Access', 'Garden', 'Mountain View'], type: 'homestay', description: 'Traditional Kerala home amidst tea plantations', available: true, commission: 12, maxGuests: 4, bedrooms: 2, bathrooms: 1, owner: 'Local Family', featured: false }
+  ];
 
   const handleSearch = () => {
-    // Validate required fields before searching
-    if (!searchData.destination.trim()) {
-      alert('Please enter a destination');
-      return;
+    if (!searchData.destination.trim()) { 
+      alert('Please enter a destination'); 
+      return; 
     }
-    
-    if (!searchData.checkIn || !searchData.checkOut) {
-      alert('Please select check-in and check-out dates');
-      return;
+    if (!searchData.checkIn || !searchData.checkOut) { 
+      alert('Please select check-in and check-out dates'); 
+      return; 
     }
-    
-    updateSearchFilters(searchData);
-    navigate('/search');
+    const searchParams = new URLSearchParams();
+    searchParams.set('destination', searchData.destination);
+    searchParams.set('checkIn', searchData.checkIn);
+    searchParams.set('checkOut', searchData.checkOut);
+    searchParams.set('guests', searchData.guests.toString());
+    searchParams.set('rooms', searchData.rooms.toString());
+    navigate(`/hotel-search?${searchParams.toString()}`);
   };
 
   const featuredDestinations = [
-    {
-      name: 'Mumbai',
-      image: 'https://images.pexels.com/photos/1010657/pexels-photo-1010657.jpeg',
-      properties: '1,200+ properties',
-    },
-    {
-      name: 'Goa',
-      image: 'https://images.pexels.com/photos/1007657/pexels-photo-1007657.jpeg',
-      properties: '800+ properties',
-    },
-    {
-      name: 'Kerala',
-      image: 'https://images.pexels.com/photos/962464/pexels-photo-962464.jpeg',
-      properties: '650+ properties',
-    },
-    {
-      name: 'Rajasthan',
-      image: 'https://images.pexels.com/photos/3581364/pexels-photo-3581364.jpeg',
-      properties: '900+ properties',
-    },
+    { name: 'Mumbai', image: 'https://images.pexels.com/photos/1010657/pexels-photo-1010657.jpeg', properties: '1,200+ hotels' },
+    { name: 'Goa', image: 'https://images.pexels.com/photos/1007657/pexels-photo-1007657.jpeg', properties: '800+ hotels' },
+    { name: 'Kerala', image: 'https://images.pexels.com/photos/962464/pexels-photo-962464.jpeg', properties: '650+ hotels' },
+    { name: 'Rajasthan', image: 'https://images.pexels.com/photos/3581364/pexels-photo-3581364.jpeg', properties: '900+ hotels' }
   ];
 
-  const propertyTypes = [
-    {
-      name: 'Hotels',
-      icon: '🏨',
-      description: 'Comfortable stays with modern amenities',
-      count: '2,500+',
-    },
-    {
-      name: 'Resorts',
-      icon: '🏖️',
-      description: 'Luxury resorts with premium facilities',
-      count: '800+',
-    },
-    {
-      name: 'Homestays',
-      icon: '🏠',
-      description: 'Authentic local experiences',
-      count: '1,200+',
-    },
+  const hotelTypes = [
+    { name: 'Hotels', icon: '🏨', description: 'Comfortable stays with modern amenities', count: allHotels.filter(h => h.type === 'hotel').length || '2,500+', filterValue: 'hotel' },
+    { name: 'Resorts', icon: '🏖️', description: 'Luxury resorts with premium facilities', count: allHotels.filter(h => h.type === 'resort').length || '800+', filterValue: 'resort' },
+    { name: 'Homestays', icon: '🏠', description: 'Authentic local experiences', count: allHotels.filter(h => h.type === 'homestay').length || '1,200+', filterValue: 'homestay' }
   ];
 
   return (
@@ -209,7 +152,6 @@ const HomePage: React.FC = () => {
           backgroundImage: 'linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url(https://images.pexels.com/photos/457882/pexels-photo-457882.jpeg)',
         }}
       >
-        {/* Header positioned on top of hero */}
         <Header variant="hero" />
         
         <div className="absolute inset-0 flex items-center justify-center">
@@ -239,7 +181,7 @@ const HomePage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Check-in */}
+                {/* Check-in & Check-out */}
                 <div className="sm:col-span-2 lg:col-span-2">
                   <DatePicker
                     checkIn={searchData.checkIn}
@@ -250,25 +192,158 @@ const HomePage: React.FC = () => {
                 </div>
 
                 {/* Guests & Rooms */}
-                <div>
+                <div ref={guestDropdownRef}>
                   <label className="block text-xs xs:text-sm font-medium text-gray-700 mb-1 xs:mb-2">Guests & Rooms</label>
                   <div className="relative">
-                    <Users className="absolute left-2 xs:left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 xs:h-5 xs:w-5" />
-                    <select
-                      className="w-full pl-8 xs:pl-10 pr-3 xs:pr-4 py-2 xs:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 appearance-none text-sm"
-                      value={`${searchData.guests}-${searchData.rooms}`}
-                      onChange={(e) => {
-                        const [guests, rooms] = e.target.value.split('-').map(Number);
-                        setSearchData({ ...searchData, guests, rooms });
-                      }}
+                    <Users className="absolute left-2 xs:left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 xs:h-5 xs:w-5 pointer-events-none z-10" />
+                    <button
+                      type="button"
+                      onClick={() => setIsGuestDropdownOpen(!isGuestDropdownOpen)}
+                      className="w-full pl-8 xs:pl-10 pr-3 xs:pr-4 py-2 xs:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 text-left text-sm bg-white hover:bg-gray-50 transition-colors"
                     >
-                      <option value="1-1">1 Guest, 1 Room</option>
-                      <option value="2-1">2 Guests, 1 Room</option>
-                      <option value="3-1">3 Guests, 1 Room</option>
-                      <option value="4-1">4 Guests, 1 Room</option>
-                      <option value="4-2">4 Guests, 2 Rooms</option>
-                      <option value="6-2">6 Guests, 2 Rooms</option>
-                    </select>
+                      {totalGuests} Guest{totalGuests !== 1 ? 's' : ''}, {searchData.rooms} Room{searchData.rooms !== 1 ? 's' : ''}
+                    </button>
+
+                    {/* Dropdown Panel */}
+                    {isGuestDropdownOpen && (
+                      <div className="absolute z-50 mt-2 w-full min-w-[300px] bg-white border border-gray-200 rounded-lg shadow-xl p-4">
+                        {/* Adults */}
+                        <div className="flex items-center justify-between py-3 border-b border-gray-200">
+                          <span className="text-gray-900 font-medium text-sm">Adults</span>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('guests', -1)}
+                              disabled={searchData.guests <= 1}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <Minus className="h-4 w-4 text-gray-600" />
+                            </button>
+                            <span className="text-gray-900 font-medium w-6 text-center">
+                              {searchData.guests}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('guests', 1)}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              <Plus className="h-4 w-4 text-blue-600" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Children */}
+                        <div className="py-3 border-b border-gray-200">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-gray-900 font-medium text-sm">Children</span>
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => updateGuestValue('children', -1)}
+                                disabled={searchData.children <= 0}
+                                className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <Minus className="h-4 w-4 text-gray-600" />
+                              </button>
+                              <span className="text-gray-900 font-medium w-6 text-center">
+                                {searchData.children}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => updateGuestValue('children', 1)}
+                                className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                              >
+                                <Plus className="h-4 w-4 text-blue-600" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Age Selectors for Children */}
+                          {searchData.children > 0 && (
+                            <div className="mt-3 space-y-2">
+                              {Array.from({ length: searchData.children }).map((_, index) => (
+                                <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded-lg">
+                                  <span className="text-sm text-gray-700">Child {index + 1} age</span>
+                                  <select
+                                    value={searchData.childrenAges[index] || 5}
+                                    onChange={(e) => updateChildAge(index, Number(e.target.value))}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                                  >
+                                    {Array.from({ length: 15 }, (_, i) => i + 1).map((age) => (
+                                      <option key={age} value={age}>
+                                        {age} {age === 1 ? 'year' : 'years'}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ))}
+                              <p className="text-xs text-gray-600 mt-2">
+                                To find you a place to stay that fits your entire group along with correct prices, we need to know how old your child will be at check-out
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Rooms */}
+                        <div className="flex items-center justify-between py-3 border-b border-gray-200">
+                          <span className="text-gray-900 font-medium text-sm">Rooms</span>
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('rooms', -1)}
+                              disabled={searchData.rooms <= 1}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <Minus className="h-4 w-4 text-gray-600" />
+                            </button>
+                            <span className="text-gray-900 font-medium w-6 text-center">
+                              {searchData.rooms}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateGuestValue('rooms', 1)}
+                              className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              <Plus className="h-4 w-4 text-blue-600" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Pets Toggle */}
+                        <div className="flex items-center justify-between py-3">
+                          <span className="text-gray-900 text-sm">Travelling with pets?</span>
+                          <button
+                            type="button"
+                            onClick={() => setSearchData(prev => ({ ...prev, pets: !prev.pets }))}
+                            className={`relative w-11 h-6 rounded-full transition-colors ${
+                              searchData.pets ? 'bg-blue-600' : 'bg-gray-300'
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                                searchData.pets ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Info Text */}
+                        <div className="mt-2 mb-3">
+                          <p className="text-xs text-gray-600">
+                            Assistance animals aren't considered pets.
+                          </p>
+                        </div>
+
+                        {/* Done Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsGuestDropdownOpen(false)}
+                          className="w-full py-2.5 text-blue-600 font-medium border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors text-sm"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -336,7 +411,7 @@ const HomePage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 gap-4 xs:gap-6 sm:gap-8">
-            {propertyTypes.map((type, index) => (
+            {hotelTypes.map((type, index) => (
               <div
                 key={index}
                 className="bg-white rounded-lg xs:rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 p-4 xs:p-6 sm:p-8 text-center group cursor-pointer hover:-translate-y-1"
@@ -351,7 +426,7 @@ const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* Features */}
+      {/* Featured Properties */}
       <section className="py-8 xs:py-12 sm:py-16 bg-white">
         <div className="max-w-7xl mx-auto px-3 xs:px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-6 xs:mb-8 sm:mb-12">
@@ -368,9 +443,9 @@ const HomePage: React.FC = () => {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <p className="text-gray-600">Loading featured properties...</p>
             </div>
-          ) : (
+          ) : displayedHotels.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {featuredHotels.slice(0, 4).map((property, index) => (
+              {displayedHotels.slice(0, 4).map((property) => (
                 <div
                   key={property.id}
                   className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group cursor-pointer border border-gray-100"
@@ -383,7 +458,6 @@ const HomePage: React.FC = () => {
                     }
                   }}
                 >
-                  {/* Property Image - Clean design */}
                   <div className="relative h-48 overflow-hidden">
                     <img
                       src={property.images[0]}
@@ -391,8 +465,7 @@ const HomePage: React.FC = () => {
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                     />
                     
-                    {/* Featured Badge - Top Left */}
-                    {index === 0 && (
+                    {property.featured && (
                       <div className="absolute top-4 left-4">
                         <span className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg">
                           FEATURED
@@ -400,7 +473,6 @@ const HomePage: React.FC = () => {
                       </div>
                     )}
                     
-                    {/* Property Type Badge - Top Right */}
                     <div className="absolute top-4 right-4">
                       <span className="bg-blue-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-md">
                         {property.type.charAt(0).toUpperCase() + property.type.slice(1)}
@@ -408,20 +480,16 @@ const HomePage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Property Content - Clean Layout */}
                   <div className="p-6">
-                    {/* Property Name */}
                     <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-1">
                       {property.name}
                     </h3>
                     
-                    {/* Location */}
                     <div className="flex items-center text-gray-600 mb-3">
                       <MapPin className="h-4 w-4 mr-2 text-gray-400" />
                       <span className="text-sm">{property.location}</span>
                     </div>
 
-                    {/* Property Details - Horizontal Layout */}
                     <div className="flex items-center justify-between text-sm text-gray-600 mb-4 bg-gray-50 rounded-lg p-3">
                       <div className="flex items-center">
                         <Users className="h-4 w-4 mr-1" />
@@ -437,7 +505,6 @@ const HomePage: React.FC = () => {
                       </div>
                     </div>
                     
-                    {/* Rating and Price Row */}
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center">
                         <Star className="h-4 w-4 text-yellow-400 fill-current mr-1" />
@@ -450,7 +517,6 @@ const HomePage: React.FC = () => {
                       </div>
                     </div>
                     
-                    {/* Amenities - Compact Display */}
                     <div className="mb-4">
                       <div className="flex flex-wrap gap-1">
                         {property.amenities.slice(0, 3).map((amenity: string, amenityIndex: number) => (
@@ -466,7 +532,6 @@ const HomePage: React.FC = () => {
                       </div>
                     </div>
                     
-                    {/* Book Now Button - Prominent */}
                     <button className="w-full bg-blue-600 text-white py-3 px-4 rounded-xl hover:bg-blue-700 transition-all duration-300 font-semibold shadow-md hover:shadow-lg transform hover:scale-105">
                       Book Now
                     </button>
@@ -474,9 +539,12 @@ const HomePage: React.FC = () => {
                 </div>
               ))}
             </div>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-600">No properties available at the moment.</p>
+            </div>
           )}
           
-          {/* View All Properties Button */}
           <div className="text-center mt-12">
             <button
               onClick={() => navigate('/search')}

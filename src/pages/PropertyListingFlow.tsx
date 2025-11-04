@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -67,123 +68,215 @@ import { useAuth } from '../context/AuthContext';
 import { propertyService, PropertyData } from '../lib/propertyService';
 import { supabase } from '../lib/supabase';
 import { ChevronDown } from 'lucide-react';
+import { propertyLimitsService } from '../lib/propertyLimitsService';
 
+// ============================================
+// STORAGE HELPERS
+// ============================================
+const STORAGE_KEYS = {
+  CURRENT_STEP: 'propertyListing_currentStep',
+  FORM_DATA: 'propertyListing_formData',
+  PROPERTY_FLOW: 'propertyListing_propertyFlow',
+  UPLOADED_IMAGES: 'propertyListing_uploadedImages',
+  UPLOADED_DOCUMENTS: 'propertyListing_uploadedDocuments',
+  COVER_IMAGE_INDEX: 'propertyListing_coverImageIndex',
+};
+
+const SESSION_KEY = 'activeListingSession';
+
+const saveToStorage = (key: string, data: any) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (error) {
+    console.error('Error saving to localStorage:', error);
+  }
+};
+
+const loadFromStorage = (key: string, defaultValue: any = null) => {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
+  } catch (error) {
+    console.error('Error loading from localStorage:', error);
+    return defaultValue;
+  }
+};
+
+const clearStorage = () => {
+  Object.values(STORAGE_KEYS).forEach(key => {
+    localStorage.removeItem(key);
+  });
+};
+
+const clearSession = () => {
+  sessionStorage.removeItem(SESSION_KEY);
+};
+
+const isActiveSession = () => {
+  return sessionStorage.getItem(SESSION_KEY) === 'true';
+};
+
+const setActiveSession = () => {
+  sessionStorage.setItem(SESSION_KEY, 'true');
+};
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 const PropertyListingFlow: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [currentStep, setCurrentStep] = useState<string>('welcome');
-  const [propertyData, setPropertyData] = useState<any>({
+  
+  // ============================================
+  // STATE WITH PERSISTENCE
+  // ============================================
+  const [currentStep, setCurrentStep] = useState<string>('entry');
+  const [shouldLoadProgress, setShouldLoadProgress] = useState(false);
+
+  const [propertyFlow, setPropertyFlow] = useState({
+    mainCategory: '',
+    subCategory: '',
+    roomType: '',
+    isMultiple: false,
+    numberOfProperties: 1
+  });
+
+  const [formData, setFormData] = useState({
     propertyType: '',
-    propertySubType: '',
-    homeType: '',
-    hotelType: '',
-    alternativeType: '',
-    sameAddress: null,
-    propertyCount: 1,
     name: '',
     description: '',
     location: '',
     address: '',
+    post_code: '',
     maxGuests: 1,
     bedrooms: 1,
     bathrooms: 1,
     propertySize: '',
+    sizeUnit: 'sqft',
+    bed_configuration: null as any,
+    allowChildren: true,
+    offerCots: true,
     amenities: [] as string[],
     pricePerNight: 1000,
     cleaningFee: 0,
     securityDeposit: 0,
     weeklyDiscount: 0,
     monthlyDiscount: 0,
+    freeCancellationDays: 1,
+    accidentalBookingProtection: true,
     contactName: '',
     contactEmail: '',
     contactPhone: '',
+    smokingAllowed: false,
+    partiesAllowed: false,
+    petsPolicy: 'upon-request' as 'yes' | 'upon-request' | 'no',
+    petCharges: 'free' as 'free' | 'charges-apply',
+    checkInFrom: '15:00',
+    checkInUntil: '18:00',
+    checkOutFrom: '08:00',
+    checkOutUntil: '11:00',
     checkInTime: '3:00 PM',
     checkOutTime: '11:00 AM',
     minimumStay: 1,
     cancellationPolicy: 'Flexible cancellation up to 24 hours before check-in',
+    nearbyAttractions: [] as string[],
     propertyRules: [] as string[],
   });
+
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [uploadedDocuments, setUploadedDocuments] = useState<any[]>([]);
+  const [coverImageIndex, setCoverImageIndex] = useState<number | null>(null);
   const [propertyId, setPropertyId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
-  const [uploadedDocuments, setUploadedDocuments] = useState<any[]>([]);
   const [authLoading, setAuthLoading] = useState(true);
-  const [showMoreHotelTypes, setShowMoreHotelTypes] = useState(false);
-  const [coverImageIndex, setCoverImageIndex] = useState<number | null>(null);
 
-  // Property selection state
-  const [propertyFlow, setPropertyFlow] = useState({
-    mainCategory: '', // apartment, homes, hotels, alternative
-    subCategory: '', // specific type like villa, hotel, etc.
-    roomType: '', // entire_place, private_room
-    isMultiple: false,
-    numberOfProperties: 1
-  });
+  // ============================================
+  // INITIAL LOAD - Check session and load data
+  // ============================================
+  useEffect(() => {
+    const hasActiveSession = isActiveSession();
+    const savedStep = loadFromStorage(STORAGE_KEYS.CURRENT_STEP);
+    
+    if (hasActiveSession && savedStep && savedStep !== 'entry' && savedStep !== 'success') {
+      // Active session exists - load all saved data
+      setCurrentStep(savedStep);
+      setPropertyFlow(loadFromStorage(STORAGE_KEYS.PROPERTY_FLOW, {
+        mainCategory: '',
+        subCategory: '',
+        roomType: '',
+        isMultiple: false,
+        numberOfProperties: 1
+      }));
+      setFormData(loadFromStorage(STORAGE_KEYS.FORM_DATA, formData));
+      setUploadedImages(loadFromStorage(STORAGE_KEYS.UPLOADED_IMAGES, []));
+      setUploadedDocuments(loadFromStorage(STORAGE_KEYS.UPLOADED_DOCUMENTS, []));
+      setCoverImageIndex(loadFromStorage(STORAGE_KEYS.COVER_IMAGE_INDEX, null));
+    } else {
+      // No active session - start fresh at entry
+      setCurrentStep('entry');
+      clearSession();
+    }
+  }, []);
 
-  // Form data state (keeping the same structure for basic info onwards)
-  const [formData, setFormData] = useState({
-  // Property Type (will be set based on property flow selections)
-  propertyType: '',
-  
-  // Step 2: Basic Info
-  name: '',
-  description: '',
-  location: '',
-  address: '',
-  post_code : '',
-  
-  // Step 3: Details
-  maxGuests: 1,
-  bedrooms: 1,
-  bathrooms: 1,
-  propertySize: '',
-  sizeUnit: 'sqft',
-  bed_configuration: null as any,
-  allowChildren: true,
-  offerCots: true,
-  
-  // Step 4: Amenities
-  amenities: [] as string[],
-  
-  // Step 5: Photos (handled separately)
-  
-  // Step 6: Pricing
-  pricePerNight: 1000,
-  cleaningFee: 0,
-  securityDeposit: 0,
-  weeklyDiscount: 0,
-  monthlyDiscount: 0,
-  freeCancellationDays: 1,
-  accidentalBookingProtection: true,
-  
-  // Step 7: Policies
-  contactName: '',
-  contactEmail: '',
-  contactPhone: '',
-  smokingAllowed: false,
-  partiesAllowed: false,
-  petsPolicy: 'upon-request' as 'yes' | 'upon-request' | 'no',
-  petCharges: 'free' as 'free' | 'charges-apply',
-  checkInFrom: '15:00',
-  checkInUntil: '18:00',
-  checkOutFrom: '08:00',
-  checkOutUntil: '11:00',
-  checkInTime: '3:00 PM',
-  checkOutTime: '11:00 AM',
-  minimumStay: 1,
-  cancellationPolicy: 'Flexible cancellation up to 24 hours before check-in',
-  propertyRules: [] as string[],
-});
+  // ============================================
+  // AUTO-SAVE TO LOCALSTORAGE
+  // ============================================
+  useEffect(() => {
+    if (currentStep !== 'entry' && currentStep !== 'success') {
+      saveToStorage(STORAGE_KEYS.CURRENT_STEP, currentStep);
+    }
+  }, [currentStep]);
 
-  // Check authentication
+  useEffect(() => {
+    if (currentStep !== 'entry' && currentStep !== 'success') {
+      saveToStorage(STORAGE_KEYS.PROPERTY_FLOW, propertyFlow);
+    }
+  }, [propertyFlow, currentStep]);
+
+  useEffect(() => {
+    if (currentStep !== 'entry' && currentStep !== 'success') {
+      saveToStorage(STORAGE_KEYS.FORM_DATA, formData);
+    }
+  }, [formData, currentStep]);
+
+  useEffect(() => {
+    if (currentStep !== 'entry' && currentStep !== 'success') {
+      saveToStorage(STORAGE_KEYS.UPLOADED_IMAGES, uploadedImages);
+    }
+  }, [uploadedImages, currentStep]);
+
+  useEffect(() => {
+    if (currentStep !== 'entry' && currentStep !== 'success') {
+      saveToStorage(STORAGE_KEYS.UPLOADED_DOCUMENTS, uploadedDocuments);
+    }
+  }, [uploadedDocuments, currentStep]);
+
+  useEffect(() => {
+    if (currentStep !== 'entry' && currentStep !== 'success') {
+      saveToStorage(STORAGE_KEYS.COVER_IMAGE_INDEX, coverImageIndex);
+    }
+  }, [coverImageIndex, currentStep]);
+
+  // ============================================
+  // SESSION MANAGEMENT
+  // ============================================
+  useEffect(() => {
+    if (currentStep !== 'entry' && currentStep !== 'success') {
+      setActiveSession();
+    }
+  }, [currentStep]);
+
+  // ============================================
+  // AUTH CHECK
+  // ============================================
   React.useEffect(() => {
     const checkAuth = async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      if (!user) {
-        console.log('User not authenticated, redirecting to login...');
-        sessionStorage.setItem('redirectAfterLogin', '/list-property');
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session && !user) {
         navigate('/login');
         return;
       }
@@ -209,150 +302,126 @@ const PropertyListingFlow: React.FC = () => {
     return null;
   }
 
-  // Step navigation functions
+  // ============================================
+  // NAVIGATION FUNCTIONS
+  // ============================================
   const goToBasicInfo = () => {
-    // Set the final property type based on selections
     let finalType = '';
     
     if (propertyFlow.mainCategory === 'apartment') {
       finalType = 'apartment';
     } else if (propertyFlow.mainCategory === 'homes') {
       if (propertyFlow.roomType === 'entire_place') {
-        finalType = propertyFlow.subCategory; // villa, apartment, etc.
+        finalType = propertyFlow.subCategory;
       } else {
-        finalType = propertyFlow.subCategory; // guest_house, homestay, etc.
+        finalType = propertyFlow.subCategory;
       }
     } else if (propertyFlow.mainCategory === 'hotels') {
-      finalType = propertyFlow.subCategory; // hotel, guest_house, etc.
+      finalType = propertyFlow.subCategory;
     } else if (propertyFlow.mainCategory === 'alternative') {
-      finalType = propertyFlow.subCategory; // campsite, boat, luxury_tent
+      finalType = propertyFlow.subCategory;
     }
     
     setFormData(prev => ({ ...prev, propertyType: finalType }));
     setCurrentStep('basic_info');
   };
 
-const handleSubmit = async () => {
-  setIsSubmitting(true);
-  try {
-    // FIX: Ensure room_type is valid (entire_place, private_room, or null)
-    let validRoomType: 'entire_place' | 'private_room' | null = null;
-    
-    if (propertyFlow.roomType === 'entire_place') {
-      validRoomType = 'entire_place';
-    } else if (propertyFlow.roomType === 'private_room') {
-      validRoomType = 'private_room';
+  // ============================================
+  // SUBMIT HANDLER
+  // ============================================
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      let validRoomType: 'entire_place' | 'private_room' | null = null;
+      
+      if (propertyFlow.roomType === 'entire_place') {
+        validRoomType = 'entire_place';
+      } else if (propertyFlow.roomType === 'private_room') {
+        validRoomType = 'private_room';
+      }
+
+      const propertyData: PropertyData = {
+        name: formData.name,
+        description: formData.description,
+        location: formData.location,
+        address: formData.address,
+        post_code: formData.post_code,
+        property_type: formData.propertyType as any,
+        max_guests: formData.maxGuests,
+        bedrooms: formData.bedrooms,
+        bathrooms: formData.bathrooms,
+        property_size: formData.propertySize,
+        size_unit: formData.sizeUnit || 'sqft',
+        bed_configuration: formData.bed_configuration || null,
+        allow_children: formData.allowChildren !== undefined ? formData.allowChildren : true,
+        offer_cots: formData.offerCots !== undefined ? formData.offerCots : true,
+        amenities: formData.amenities || [],
+        images: uploadedImages,
+        price_per_night: formData.pricePerNight,
+        cleaning_fee: formData.cleaningFee || 0,
+        security_deposit: formData.securityDeposit || 0,
+        weekly_discount: formData.weeklyDiscount || 0,
+        monthly_discount: formData.monthlyDiscount || 0,
+        contact_name: formData.contactName,
+        contact_email: formData.contactEmail,
+        contact_phone: formData.contactPhone,
+        smoking_allowed: formData.smokingAllowed || false,
+        parties_allowed: formData.partiesAllowed || false,
+        pets_policy: formData.petsPolicy || 'upon-request',
+        pet_charges: formData.petCharges || 'free',
+        check_in_from: formData.checkInFrom || '15:00',
+        check_in_until: formData.checkInUntil || '18:00',
+        check_out_from: formData.checkOutFrom || '08:00',
+        check_out_until: formData.checkOutUntil || '11:00',
+        check_in_time: formData.checkInTime || '3:00 PM',
+        check_out_time: formData.checkOutTime || '11:00 AM',
+        free_cancellation_days: formData.freeCancellationDays || 1,
+        accidental_booking_protection: formData.accidentalBookingProtection !== undefined 
+          ? formData.accidentalBookingProtection 
+          : true,
+        cancellation_policy: formData.cancellationPolicy || 'Flexible cancellation up to 24 hours before check-in',
+        nearby_attractions: formData.nearbyAttractions || [], 
+        property_rules: formData.propertyRules || [],
+        minimum_stay: formData.minimumStay || 1,
+        instant_book: false,
+        documents: uploadedDocuments,
+        main_category: propertyFlow.mainCategory,
+        sub_category: propertyFlow.subCategory,
+        room_type: validRoomType,
+        is_multiple: propertyFlow.isMultiple || false,
+        number_of_properties: propertyFlow.numberOfProperties || 1,
+        is_same_location: propertyFlow.isSameLocation,
+        is_multiple_properties: propertyFlow.isMultiple || false,
+        property_count: propertyFlow.numberOfProperties || 1,
+        same_address: propertyFlow.isSameLocation,
+        listing_type: propertyFlow.isMultiple 
+          ? (propertyFlow.isSameLocation ? 'multiple_same_address' : 'multiple_different_address')
+          : 'single'
+      };
+
+      console.log('Submitting property data:', propertyData);
+
+      const result = await propertyService.createProperty(propertyData);
+      
+      if (result.success && result.property) {
+        setPropertyId(result.property.id);
+        clearStorage();
+        clearSession();
+        setCurrentStep('success');
+      } else {
+        alert(`Failed to create property: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error creating property:', error);
+      alert('An error occurred while creating the property');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
 
-    const propertyData: PropertyData = {
-      // Basic Information
-      name: formData.name,
-      description: formData.description,
-      location: formData.location,
-      address: formData.address,
-      post_code: formData.post_code,
-      property_type: formData.propertyType as any,
-      
-      // Guest Capacity & Rooms
-      max_guests: formData.maxGuests,
-      bedrooms: formData.bedrooms,
-      bathrooms: formData.bathrooms,
-      
-      // Property Size
-      property_size: formData.propertySize,
-      size_unit: formData.sizeUnit || 'sqft',
-      
-      // Bed Configuration
-      bed_configuration: formData.bed_configuration || null,
-      
-      // Children & Cots
-      allow_children: formData.allowChildren !== undefined ? formData.allowChildren : true,
-      offer_cots: formData.offerCots !== undefined ? formData.offerCots : true,
-      
-      // Amenities & Images
-      amenities: formData.amenities || [],
-      images: uploadedImages,
-      
-      // Pricing
-      price_per_night: formData.pricePerNight,
-      cleaning_fee: formData.cleaningFee || 0,
-      security_deposit: formData.securityDeposit || 0,
-      weekly_discount: formData.weeklyDiscount || 0,
-      monthly_discount: formData.monthlyDiscount || 0,
-      
-      // Contact Information
-      contact_name: formData.contactName,
-      contact_email: formData.contactEmail,
-      contact_phone: formData.contactPhone,
-      
-      // Policies
-      smoking_allowed: formData.smokingAllowed || false,
-      parties_allowed: formData.partiesAllowed || false,
-      pets_policy: formData.petsPolicy || 'upon-request',
-      pet_charges: formData.petCharges || 'free',
-      
-      // Check-in/Check-out Times
-      check_in_from: formData.checkInFrom || '15:00',
-      check_in_until: formData.checkInUntil || '18:00',
-      check_out_from: formData.checkOutFrom || '08:00',
-      check_out_until: formData.checkOutUntil || '11:00',
-      
-      // Legacy fields (for backwards compatibility)
-      check_in_time: formData.checkInTime || '3:00 PM',
-      check_out_time: formData.checkOutTime || '11:00 AM',
-      
-      // Cancellation Policy
-      free_cancellation_days: formData.freeCancellationDays || 1,
-      accidental_booking_protection: formData.accidentalBookingProtection !== undefined 
-        ? formData.accidentalBookingProtection 
-        : true,
-      cancellation_policy: formData.cancellationPolicy || 'Flexible cancellation up to 24 hours before check-in',
-      
-      // Property Rules & Minimum Stay
-      property_rules: formData.propertyRules || [],
-      minimum_stay: formData.minimumStay || 1,
-      instant_book: false,
-      
-      // Documents
-      documents: uploadedDocuments,
-      
-      // Property Flow Data (from the initial property selection)
-      main_category: propertyFlow.mainCategory,
-      sub_category: propertyFlow.subCategory,
-      room_type: validRoomType, // FIX: Use validated room_type
-      is_multiple: propertyFlow.isMultiple || false,
-      number_of_properties: propertyFlow.numberOfProperties || 1,
-      is_same_location: propertyFlow.isSameLocation,
-      
-      // Multiple Properties Support
-      is_multiple_properties: propertyFlow.isMultiple || false,
-      property_count: propertyFlow.numberOfProperties || 1,
-      same_address: propertyFlow.isSameLocation,
-      listing_type: propertyFlow.isMultiple 
-        ? (propertyFlow.isSameLocation ? 'multiple_same_address' : 'multiple_different_address')
-        : 'single'
-    };
-
-    console.log('Submitting property data:', propertyData);
-    console.log('Room type being sent:', validRoomType);
-
-    const result = await propertyService.createProperty(propertyData);
-    
-    if (result.success && result.property) {
-      setPropertyId(result.property.id);
-      setCurrentStep('success');
-    } else {
-      alert(`Failed to create property: ${result.error}`);
-    }
-  } catch (error) {
-    console.error('Error creating property:', error);
-    alert('An error occurred while creating the property');
-  } finally {
-    setIsSubmitting(false);
-  }
-};
-
-  // Image upload function
+  // ============================================
+  // IMAGE UPLOAD
+  // ============================================
   const uploadImage = async (file: File): Promise<string | null> => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -383,17 +452,97 @@ const handleSubmit = async () => {
     }
   };
 
-  // Render current step
+  // ============================================
+  // RENDER STEPS
+  // ============================================
   const renderCurrentStep = () => {
     switch (currentStep) {
       case 'entry':
-        return <EntryPointStep onNext={(action) => {
-          if (action === 'get_started') {
-            setCurrentStep('property_categories');
-          } else {
-            setCurrentStep('property_categories'); // For now, both go to categories
-          }
-        }} />;
+        return <EntryPointStep 
+          onNext={(action) => {
+            if (action === 'get_started') {
+              // Clear everything and start fresh
+              clearStorage();
+              clearSession();
+              setActiveSession();
+              
+              // Reset all state
+              setPropertyFlow({
+                mainCategory: '',
+                subCategory: '',
+                roomType: '',
+                isMultiple: false,
+                numberOfProperties: 1
+              });
+              
+              setFormData({
+                propertyType: '',
+                name: '',
+                description: '',
+                location: '',
+                address: '',
+                post_code: '',
+                maxGuests: 1,
+                bedrooms: 1,
+                bathrooms: 1,
+                propertySize: '',
+                sizeUnit: 'sqft',
+                bed_configuration: null,
+                allowChildren: true,
+                offerCots: true,
+                amenities: [],
+                pricePerNight: 1000,
+                cleaningFee: 0,
+                securityDeposit: 0,
+                weeklyDiscount: 0,
+                monthlyDiscount: 0,
+                freeCancellationDays: 1,
+                accidentalBookingProtection: true,
+                contactName: '',
+                contactEmail: '',
+                contactPhone: '',
+                smokingAllowed: false,
+                partiesAllowed: false,
+                petsPolicy: 'upon-request',
+                petCharges: 'free',
+                checkInFrom: '15:00',
+                checkInUntil: '18:00',
+                checkOutFrom: '08:00',
+                checkOutUntil: '11:00',
+                checkInTime: '3:00 PM',
+                checkOutTime: '11:00 AM',
+                minimumStay: 1,
+                cancellationPolicy: 'Flexible cancellation up to 24 hours before check-in',
+                propertyRules: [],
+              });
+              
+              setUploadedImages([]);
+              setUploadedDocuments([]);
+              setCoverImageIndex(null);
+              
+              setCurrentStep('property_categories');
+            } else {
+              // Continue - load saved progress
+              setActiveSession();
+              const savedStep = loadFromStorage(STORAGE_KEYS.CURRENT_STEP);
+              if (savedStep && savedStep !== 'entry' && savedStep !== 'success') {
+                // Load all saved data
+                setPropertyFlow(loadFromStorage(STORAGE_KEYS.PROPERTY_FLOW, propertyFlow));
+                setFormData(loadFromStorage(STORAGE_KEYS.FORM_DATA, formData));
+                setUploadedImages(loadFromStorage(STORAGE_KEYS.UPLOADED_IMAGES, []));
+                setUploadedDocuments(loadFromStorage(STORAGE_KEYS.UPLOADED_DOCUMENTS, []));
+                setCoverImageIndex(loadFromStorage(STORAGE_KEYS.COVER_IMAGE_INDEX, null));
+                setCurrentStep(savedStep);
+              } else {
+                setCurrentStep('property_categories');
+              }
+            }
+          }}
+          hasSavedProgress={(() => {
+            const savedStep = loadFromStorage(STORAGE_KEYS.CURRENT_STEP);
+            return savedStep && savedStep !== 'entry' && savedStep !== 'success';
+          })()}
+        />;
       
       case 'property_categories':
         return <PropertyCategoriesStep 
@@ -401,7 +550,11 @@ const handleSubmit = async () => {
             setPropertyFlow(prev => ({ ...prev, mainCategory: category }));
             setCurrentStep(`${category}_flow`);
           }}
-          onBack={() => setCurrentStep('entry')}
+          onBack={() => {
+            clearStorage();
+            clearSession();
+            setCurrentStep('entry');
+          }}
         />;
       
       case 'apartment_flow':
@@ -510,7 +663,30 @@ const handleSubmit = async () => {
         return <SuccessStep propertyId={propertyId} />;
       
       default:
-        return <EntryPointStep onNext={() => setCurrentStep('property_categories')} />;
+        return <EntryPointStep 
+          onNext={(action) => {
+            if (action === 'get_started') {
+              clearStorage();
+              clearSession();
+              setActiveSession();
+              setCurrentStep('property_categories');
+            } else {
+              setActiveSession();
+              const savedStep = loadFromStorage(STORAGE_KEYS.CURRENT_STEP);
+              if (savedStep && savedStep !== 'entry' && savedStep !== 'success') {
+                setPropertyFlow(loadFromStorage(STORAGE_KEYS.PROPERTY_FLOW, propertyFlow));
+                setFormData(loadFromStorage(STORAGE_KEYS.FORM_DATA, formData));
+                setUploadedImages(loadFromStorage(STORAGE_KEYS.UPLOADED_IMAGES, []));
+                setUploadedDocuments(loadFromStorage(STORAGE_KEYS.UPLOADED_DOCUMENTS, []));
+                setCoverImageIndex(loadFromStorage(STORAGE_KEYS.COVER_IMAGE_INDEX, null));
+                setCurrentStep(savedStep);
+              } else {
+                setCurrentStep('property_categories');
+              }
+            }
+          }} 
+          hasSavedProgress={false} 
+        />;
     }
   };
 
@@ -520,7 +696,6 @@ const handleSubmit = async () => {
       
       <div className="pt-20 pb-12">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Back Button - Only show after entry point */}
           {currentStep !== 'entry' && currentStep !== 'success' && (
             <button
               onClick={() => navigate('/')}
@@ -531,7 +706,6 @@ const handleSubmit = async () => {
             </button>
           )}
 
-          {/* Step Content */}
           <div className="bg-white rounded-2xl shadow-xl border border-white/20 p-8">
             {renderCurrentStep()}
           </div>
@@ -541,8 +715,13 @@ const handleSubmit = async () => {
   );
 };
 
-// Entry Point Step
-const EntryPointStep: React.FC<{ onNext: (action: string) => void }> = ({ onNext }) => {
+// ============================================
+// ALL YOUR EXISTING STEP COMPONENTS BELOW
+// Only SuccessStep needs to be updated
+// ============================================
+
+// Entry Point Step - KEEP YOUR EXISTING CODE
+const EntryPointStep: React.FC<{ onNext: (action: string) => void; hasSavedProgress: boolean }> = ({ onNext, hasSavedProgress }) => {
   return (
     <div className="text-center space-y-8">
       <div>
@@ -567,16 +746,27 @@ const EntryPointStep: React.FC<{ onNext: (action: string) => void }> = ({ onNext
           </div>
         </button>
 
-        <button
-          onClick={() => onNext('continue')}
-          className="group p-8 bg-white border-2 border-gray-300 text-gray-700 rounded-2xl hover:border-blue-400 hover:bg-blue-50 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
-        >
-          <div className="text-center">
-            <FileText className="h-12 w-12 mx-auto mb-4 text-gray-600 group-hover:text-blue-600 group-hover:scale-110 transition-all" />
-            <h3 className="text-2xl font-bold mb-2">Continue Registration</h3>
-            <p className="text-gray-500">Resume your listing process</p>
-          </div>
-        </button>
+       <button
+  onClick={() => onNext('continue')}
+  disabled={!hasSavedProgress}
+  className={`group p-8 rounded-2xl transition-all duration-300 transform shadow-lg ${
+    hasSavedProgress
+      ? 'bg-white border-2 border-gray-300 text-gray-700 hover:border-blue-400 hover:bg-blue-50 hover:scale-105 hover:shadow-xl cursor-pointer'
+      : 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed'
+  }`}
+>
+  <div className="text-center">
+    <FileText className={`h-12 w-12 mx-auto mb-4 transition-all ${
+      hasSavedProgress
+        ? 'text-gray-600 group-hover:text-blue-600 group-hover:scale-110'
+        : 'text-gray-400'
+    }`} />
+    <h3 className="text-2xl font-bold mb-2">Continue Registration</h3>
+    <p className={hasSavedProgress ? 'text-gray-500' : 'text-gray-400'}>
+      {hasSavedProgress ? 'Resume your listing process' : 'No saved progress found'}
+    </p>
+  </div>
+</button>
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 max-w-3xl mx-auto">
@@ -1451,6 +1641,7 @@ const HotelsFlowStep: React.FC<{
     );
   }
 };
+
 // Alternative Places Flow Step
 const AlternativeFlowStep: React.FC<{
   propertyFlow: any;
@@ -1782,7 +1973,44 @@ const AlternativeFlowStep: React.FC<{
 
 // Basic Info Step (unchanged from original)
 const BasicInfoStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) => {
-  const isValid = !!(formData.name && formData.location && formData.address && formData.post_code && formData.description);
+  const [attractionInput, setAttractionInput] = useState('');
+  
+  const isValid = !!(
+    formData.name && 
+    formData.location && 
+    formData.address && 
+    formData.post_code && 
+    formData.description
+  );
+
+const addAttraction = () => {
+  const trimmed = attractionInput.trim();
+  if (!trimmed) return;
+
+  setFormData(prev => ({
+    ...prev,
+    nearbyAttractions: prev.nearbyAttractions?.includes(trimmed)
+      ? prev.nearbyAttractions
+      : [...(prev.nearbyAttractions ?? []), trimmed],
+  }));
+
+  setAttractionInput('');
+};
+
+const removeAttraction = (index: number) => {
+  setFormData(prev => ({
+    ...prev,
+    nearbyAttractions: (prev.nearbyAttractions ?? []).filter((_, i) => i !== index),
+  }));
+};
+
+
+  const handleAttractionKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addAttraction();
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1851,6 +2079,57 @@ const BasicInfoStep: React.FC<any> = ({ formData, setFormData, onNext, onBack })
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
         </div>
+
+        {/* NEW: Nearby Attractions Field */}
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Nearby Attractions
+            <span className="text-gray-500 text-xs ml-2">(Optional)</span>
+          </label>
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="e.g., Taj Mahal, Marina Beach, Gateway of India"
+              value={attractionInput}
+              onChange={(e) => setAttractionInput(e.target.value)}
+              onKeyPress={handleAttractionKeyPress}
+            />
+            <button
+              type="button"
+              onClick={addAttraction}
+              disabled={!attractionInput.trim()}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add
+            </button>
+          </div>
+          
+          {formData.nearbyAttractions && formData.nearbyAttractions.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {formData.nearbyAttractions.map((attraction, index) => (
+                <div
+                  key={index}
+                  className="bg-blue-50 text-blue-700 px-3 py-2 rounded-full text-sm flex items-center gap-2 border border-blue-200"
+                >
+                  <MapPin className="h-3 w-3" />
+                  <span>{attraction}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttraction(index)}
+                    className="text-blue-600 hover:text-blue-800 ml-1"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mt-2">
+            Add popular tourist spots, landmarks, or points of interest near your property
+          </p>
+        </div>
       </div>
 
       <div className="flex justify-between pt-6">
@@ -1874,171 +2153,299 @@ const BasicInfoStep: React.FC<any> = ({ formData, setFormData, onNext, onBack })
 
 // Details Step (unchanged from original)
 
+// Move useLimits OUTSIDE the component
+// Move useLimits OUTSIDE the component
+const useLimits = () => {
+  const [limits, setLimits] = useState<PropertyLimits | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLimits = async () => {
+      const result = await propertyLimitsService.getPropertyLimits();
+      if (result.success && result.limits) {
+        setLimits(result.limits);
+      }
+      setLoading(false);
+    };
+    fetchLimits();
+  }, []);
+
+  return { limits, loading };
+};
+
+// Bed type configurations matching the schema
+const BED_TYPES = [
+  { type: 'Single bed', size: '90–130 cm wide', icon: '🛏️', value: 'single' },
+  { type: 'Double bed', size: '131–150 cm wide', icon: '🛏️', value: 'double' },
+  { type: 'Large bed (King size)', size: '151–180 cm wide', icon: '🛏️', value: 'queen' },
+  { type: 'Extra-large double bed (Super-king size)', size: '181–210 cm wide', icon: '🛏️', value: 'king' },
+  { type: 'Bunk bed', size: 'Variable size', icon: '🪜', value: 'bunk' },
+  { type: 'Sofa bed', size: 'Variable size', icon: '🛋️', value: 'sofa_bed' },
+  { type: 'Futon Mat', size: 'Variable size', icon: '🛏️', value: 'futon' }
+];
+
 const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) => {
-  const [bedrooms, setBedrooms] = useState<Array<{ id: number; name: string; beds: { singleBed: number; doubleBed: number; largeBed: number; extraLargeBed: number; bunkBed: number; sofaBed: number; futonMat: number } }>>(() => {
-    if (formData.bed_configuration && Array.isArray(formData.bed_configuration)) {
+  const { limits, loading: limitsLoading } = useLimits();
+  
+  // Initialize bed configuration with NEW SCHEMA structure
+  const [bedConfig, setBedConfig] = useState(() => {
+    // Check if we have valid bed_configuration data
+    if (formData.bed_configuration && 
+        typeof formData.bed_configuration === 'object' &&
+        formData.bed_configuration.bedrooms &&
+        Array.isArray(formData.bed_configuration.bedrooms) &&
+        formData.bed_configuration.bedrooms.length > 0) {
       return formData.bed_configuration;
     }
-    return [];
-  });
-  const [livingRoom, setLivingRoom] = useState(() => formData.livingRoom && typeof formData.livingRoom === 'object' ? formData.livingRoom : { beds: 0, expanded: false });
-  const [otherSpaces, setOtherSpaces] = useState(() => {
-    if (formData.otherSpaces && typeof formData.otherSpaces === 'object' && formData.otherSpaces.beds) {
-      return formData.otherSpaces;
-    }
+    
+    // Initialize with default structure matching schema
     return {
-      beds: {
-        singleBed: 0,
-        doubleBed: 0,
-        largeBed: 0,
-        extraLargeBed: 0,
-        bunkBed: 0,
-        sofaBed: 0,
-        futonMat: 0
-      }, 
-      expanded: false 
+      bedrooms: [{
+        name: "Bedroom 1",
+        beds: BED_TYPES.map(bt => ({
+          type: bt.type,
+          size: bt.size,
+          count: 0
+        }))
+      }],
+      living_room: {
+        beds: [{
+          type: "Sofa bed",
+          size: "Variable size",
+          count: 0
+        }]
+      },
+      other_spaces: [{
+        name: "Other Space 1",
+        beds: BED_TYPES.map(bt => ({
+          type: bt.type,
+          size: bt.size,
+          count: 0
+        }))
+      }]
     };
   });
+
   const [allowChildren, setAllowChildren] = useState<boolean>(() => formData.allowChildren !== undefined ? formData.allowChildren : true);
   const [offerCots, setOfferCots] = useState<boolean>(() => formData.offerCots !== undefined ? formData.offerCots : true);
-  const [editingBedroomId, setEditingBedroomId] = useState<number | null>(null);
+  const [editingBedroomIndex, setEditingBedroomIndex] = useState<number | null>(null);
+  const [livingRoomExpanded, setLivingRoomExpanded] = useState(false);
+  const [otherSpacesExpanded, setOtherSpacesExpanded] = useState(false);
 
-  const addBedroom = () => {
-    if (bedrooms.length >= 25) return;
+  // Use limits with fallback values
+  const maxBedrooms = limits?.max_bedrooms ?? 25;
+  const maxBedsPerRoom = limits?.max_total_beds_per_room ?? 25;
+  const maxGuests = limits?.max_guests ?? 100;
+  const maxBathrooms = limits?.max_bathrooms ?? 100;
+
+  // Calculate total beds in bedrooms only
+  const getTotalBedsInBedrooms = () => {
+    let total = 0;
     
-    const newBedroom = {
-      id: Date.now(),
-      name: `Bedroom ${bedrooms.length + 1}`,
-      beds: {
-        singleBed: 0,
-        doubleBed: 0,
-        largeBed: 0,
-        extraLargeBed: 0,
-        bunkBed: 0,
-        sofaBed: 0,
-        futonMat: 0
-      }
-    };
-    const updatedBedrooms = [...bedrooms, newBedroom];
-    setBedrooms(updatedBedrooms);
-    setFormData({ ...formData, bed_configuration: updatedBedrooms });
-    setEditingBedroomId(newBedroom.id);
+    // Count bedroom beds only
+    if (bedConfig.bedrooms) {
+      bedConfig.bedrooms.forEach(bedroom => {
+        bedroom.beds?.forEach(bed => total += (bed.count || 0));
+      });
+    }
+    
+    return total;
   };
 
-  const removeBedroom = (id: number) => {
-    const updatedBedrooms = bedrooms.filter(b => b.id !== id);
-    setBedrooms(updatedBedrooms);
-    setFormData({ ...formData, bed_configuration: updatedBedrooms });
-    if (editingBedroomId === id) {
-      setEditingBedroomId(null);
+  // Update formData whenever bedConfig changes
+  useEffect(() => {
+    // Safety check
+    if (!bedConfig || !bedConfig.bedrooms || !Array.isArray(bedConfig.bedrooms)) {
+      return;
+    }
+
+    // Calculate total bedrooms count (only count bedrooms with at least 1 bed)
+    const bedroomsWithBeds = bedConfig.bedrooms.filter(bedroom => {
+      const totalBeds = bedroom.beds?.reduce((sum, bed) => sum + (bed.count || 0), 0) || 0;
+      return totalBeds > 0;
+    }).length;
+
+    setFormData(prev => ({
+      ...prev,
+      bed_configuration: bedConfig,
+      bedrooms: Math.max(1, bedroomsWithBeds) // At least 1 bedroom required
+    }));
+  }, [bedConfig]);
+
+  // BEDROOM FUNCTIONS
+  const addBedroom = () => {
+    if (!bedConfig.bedrooms || bedConfig.bedrooms.length >= maxBedrooms) return;
+    
+    setBedConfig(prev => ({
+      ...prev,
+      bedrooms: [...(prev.bedrooms || []), {
+        name: `Bedroom ${(prev.bedrooms?.length || 0) + 1}`,
+        beds: BED_TYPES.map(bt => ({
+          type: bt.type,
+          size: bt.size,
+          count: 0
+        }))
+      }]
+    }));
+    setEditingBedroomIndex((bedConfig.bedrooms?.length || 0));
+  };
+
+  const removeBedroom = (index: number) => {
+    if (!bedConfig.bedrooms || bedConfig.bedrooms.length <= 1) return; // Keep at least one bedroom
+    
+    setBedConfig(prev => ({
+      ...prev,
+      bedrooms: (prev.bedrooms || []).filter((_, i) => i !== index).map((br, i) => ({
+        ...br,
+        name: `Bedroom ${i + 1}`
+      }))
+    }));
+    if (editingBedroomIndex === index) {
+      setEditingBedroomIndex(null);
     }
   };
 
-  const getTotalBeds = (bedroom: any) => {
-    return Object.values(bedroom.beds).reduce((sum: number, count: any) => sum + count, 0);
+  const getTotalBedsInBedroom = (bedroomIndex: number) => {
+    if (!bedConfig.bedrooms || !bedConfig.bedrooms[bedroomIndex]) return 0;
+    return bedConfig.bedrooms[bedroomIndex]?.beds?.reduce((sum, bed) => sum + (bed.count || 0), 0) || 0;
   };
 
-  const updateBedroomBed = (bedroomId: number, bedType: string, value: number) => {
-    const updatedBedrooms = bedrooms.map(bedroom => {
-      if (bedroom.id === bedroomId) {
-        const currentTotal = getTotalBeds(bedroom);
-        const currentBedCount = bedroom.beds[bedType];
-        const newBedCount = Math.max(0, value);
-        
-        // Check if adding would exceed 25 total beds
-        if (newBedCount > currentBedCount && currentTotal >= 25) {
-          return bedroom; // Don't allow adding more
-        }
-        
-        return {
-          ...bedroom,
-          beds: {
-            ...bedroom.beds,
-            [bedType]: newBedCount
-          }
-        };
-      }
-      return bedroom;
+  const updateBedroomBedCount = (bedroomIndex: number, bedIndex: number, newCount: number) => {
+    if (!bedConfig.bedrooms || !bedConfig.bedrooms[bedroomIndex]) return;
+    
+    const currentTotal = getTotalBedsInBedroom(bedroomIndex);
+    const currentBedCount = bedConfig.bedrooms[bedroomIndex].beds[bedIndex]?.count || 0;
+    
+    // Check if adding would exceed max
+    if (newCount > currentBedCount && currentTotal >= maxBedsPerRoom) {
+      return;
+    }
+    
+    setBedConfig(prev => {
+      const newBedrooms = [...(prev.bedrooms || [])];
+      if (!newBedrooms[bedroomIndex]) return prev;
+      
+      const beds = [...(newBedrooms[bedroomIndex].beds || [])];
+      if (!beds[bedIndex]) return prev;
+      
+      beds[bedIndex] = { ...beds[bedIndex], count: Math.max(0, newCount) };
+      newBedrooms[bedroomIndex] = { ...newBedrooms[bedroomIndex], beds };
+      return { ...prev, bedrooms: newBedrooms };
     });
-    setBedrooms(updatedBedrooms);
-    setFormData({ ...formData, bed_configuration: updatedBedrooms });
   };
 
-  const updateLivingRoomBeds = (value: number) => {
-    const newValue = Math.max(0, Math.min(25, value));
-    const updatedLivingRoom = { ...livingRoom, beds: newValue };
-    setLivingRoom(updatedLivingRoom);
-    setFormData({ ...formData, livingRoom: updatedLivingRoom });
+  // LIVING ROOM FUNCTIONS
+  const getTotalLivingRoomBeds = () => {
+    if (!bedConfig.living_room || !bedConfig.living_room.beds) return 0;
+    return bedConfig.living_room.beds?.reduce((sum, bed) => sum + (bed.count || 0), 0) || 0;
+  };
+
+  const updateLivingRoomBedCount = (bedIndex: number, newCount: number) => {
+    if (!bedConfig.living_room || !bedConfig.living_room.beds) return;
+    
+    const currentTotal = getTotalLivingRoomBeds();
+    const currentBedCount = bedConfig.living_room.beds[bedIndex]?.count || 0;
+    
+    if (newCount > currentBedCount && currentTotal >= maxBedsPerRoom) {
+      return;
+    }
+    
+    setBedConfig(prev => ({
+      ...prev,
+      living_room: {
+        beds: (prev.living_room?.beds || []).map((bed, i) => 
+          i === bedIndex ? { ...bed, count: Math.max(0, newCount) } : bed
+        )
+      }
+    }));
+  };
+
+  // OTHER SPACES FUNCTIONS
+  const getTotalBedsInOtherSpace = (spaceIndex: number) => {
+    if (!bedConfig.other_spaces || !bedConfig.other_spaces[spaceIndex]) return 0;
+    return bedConfig.other_spaces[spaceIndex]?.beds?.reduce((sum, bed) => sum + (bed.count || 0), 0) || 0;
   };
 
   const getTotalOtherSpacesBeds = () => {
-    return Object.values(otherSpaces.beds).reduce((sum: number, count: any) => sum + count, 0);
+    if (!bedConfig.other_spaces) return 0;
+    let total = 0;
+    bedConfig.other_spaces?.forEach(space => {
+      space.beds?.forEach(bed => total += (bed.count || 0));
+    });
+    return total;
   };
 
   const getOtherSpacesSummary = () => {
-    const bedCounts: string[] = [];
-    const bedLabels = {
-      singleBed: 'single bed',
-      doubleBed: 'double bed',
-      largeBed: 'large double bed',
-      extraLargeBed: 'extra-large double bed',
-      bunkBed: 'bunk bed',
-      sofaBed: 'sofa bed',
-      futonMat: 'futon mat'
-    };
-
-    Object.entries(otherSpaces.beds).forEach(([key, count]) => {
-      if (count > 0) {
-        bedCounts.push(`${count} ${bedLabels[key]}${count > 1 ? 's' : ''}`);
-      }
+    const totalBeds = getTotalOtherSpacesBeds();
+    if (totalBeds === 0) return '0 beds';
+    
+    const bedCounts: { [key: string]: number } = {};
+    bedConfig.other_spaces?.forEach(space => {
+      space.beds?.forEach(bed => {
+        if (bed.count > 0) {
+          bedCounts[bed.type] = (bedCounts[bed.type] || 0) + bed.count;
+        }
+      });
     });
 
-    return bedCounts.length > 0 ? bedCounts.join(', ') : '0 beds';
+    const summary = Object.entries(bedCounts)
+      .map(([type, count]) => `${count} ${type.toLowerCase()}${count > 1 ? 's' : ''}`)
+      .join(', ');
+
+    return summary || `${totalBeds} beds`;
   };
 
-  const updateOtherSpacesBed = (bedType: string, value: number) => {
-    const currentTotal = getTotalOtherSpacesBeds();
-    const currentBedCount = otherSpaces.beds[bedType];
-    const newBedCount = Math.max(0, value);
+  const addOtherSpace = () => {
+    setBedConfig(prev => ({
+      ...prev,
+      other_spaces: [...(prev.other_spaces || []), {
+        name: `Other Space ${(prev.other_spaces?.length || 0) + 1}`,
+        beds: BED_TYPES.map(bt => ({
+          type: bt.type,
+          size: bt.size,
+          count: 0
+        }))
+      }]
+    }));
+  };
+
+  const removeOtherSpace = (spaceIndex: number) => {
+    setBedConfig(prev => ({
+      ...prev,
+      other_spaces: prev.other_spaces.filter((_, i) => i !== spaceIndex).map((space, i) => ({
+        ...space,
+        name: `Other Space ${i + 1}`
+      }))
+    }));
+  };
+
+  const updateOtherSpaceBedCount = (spaceIndex: number, bedIndex: number, newCount: number) => {
+    if (!bedConfig.other_spaces || !bedConfig.other_spaces[spaceIndex]) return;
     
-    // Check if adding would exceed 25 total beds
-    if (newBedCount > currentBedCount && currentTotal >= 25) {
-      return; // Don't allow adding more
+    const currentTotal = getTotalBedsInOtherSpace(spaceIndex);
+    const currentBedCount = bedConfig.other_spaces[spaceIndex].beds[bedIndex]?.count || 0;
+    
+    if (newCount > currentBedCount && currentTotal >= maxBedsPerRoom) {
+      return;
     }
     
-    const updatedOtherSpaces = {
-      ...otherSpaces,
-      beds: {
-        ...otherSpaces.beds,
-        [bedType]: newBedCount
-      }
-    };
-    setOtherSpaces(updatedOtherSpaces);
-    setFormData({ ...formData, otherSpaces: updatedOtherSpaces });
+    setBedConfig(prev => {
+      const newSpaces = [...(prev.other_spaces || [])];
+      if (!newSpaces[spaceIndex]) return prev;
+      
+      const beds = [...(newSpaces[spaceIndex].beds || [])];
+      if (!beds[bedIndex]) return prev;
+      
+      beds[bedIndex] = { ...beds[bedIndex], count: Math.max(0, newCount) };
+      newSpaces[spaceIndex] = { ...newSpaces[spaceIndex], beds };
+      return { ...prev, other_spaces: newSpaces };
+    });
   };
 
-  const saveBedroomEdit = () => {
-    setEditingBedroomId(null);
-  };
-
-  const isValid = !!(formData.maxGuests >= 1 && formData.bathrooms >= 1);
-
-  const handleNext = () => {
-    // Calculate total bedrooms count from bed_configuration
-    const bedroomCount = bedrooms.length;
-    setFormData({ ...formData, bedrooms: bedroomCount });
-    onNext();
-  };
-
-  const bedTypes = [
-    { key: 'singleBed', label: 'Single bed', size: '90 - 130 cm wide', icon: '🛏️' },
-    { key: 'doubleBed', label: 'Double bed', size: '131 - 150 cm wide', icon: '🛏️' },
-    { key: 'largeBed', label: 'Large bed (King size)', size: '151 - 180 cm wide', icon: '🛏️' },
-    { key: 'extraLargeBed', label: 'Extra-large double bed (Super-king size)', size: '181 - 210 cm wide', icon: '🛏️' },
-    { key: 'bunkBed', label: 'Bunk bed', size: 'Variable size', icon: '🛏️' },
-    { key: 'sofaBed', label: 'Sofa bed', size: 'Variable size', icon: '🛋️' },
-    { key: 'futonMat', label: 'Futon Mat', size: 'Variable size', icon: '🛏️' }
-  ];
+  // Updated validation - require at least 1 bed in bedrooms only
+  const totalBedroomBeds = getTotalBedsInBedrooms();
+  const totalBeds = totalBedroomBeds; // For validation warning
+  const isValid = !!(formData.maxGuests >= 1 && formData.bathrooms >= 1 && totalBedroomBeds >= 1);
 
   return (
     <div className="space-y-6">
@@ -2047,68 +2454,75 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
         <p className="text-gray-600">Where can people sleep?</p>
       </div>
 
-      {/* Where can people sleep */}
+      {limitsLoading && <p className="text-sm text-gray-500">Loading limits...</p>}
+
+      {/* Validation Warning */}
+      
+
+      {/* BEDROOMS SECTION */}
       <div className="mb-6">
-        <h3 className="text-base font-semibold mb-3">Where can people sleep?</h3>
+        <h3 className="text-base font-semibold mb-3">Bedrooms</h3>
         
         <button
           onClick={addBedroom}
-          disabled={bedrooms.length >= 25}
+          disabled={!bedConfig.bedrooms || bedConfig.bedrooms.length >= maxBedrooms}
           className={`w-full p-4 border-2 border-dashed rounded-lg flex items-center justify-center gap-2 mb-3 ${
-            bedrooms.length >= 25 
+            !bedConfig.bedrooms || bedConfig.bedrooms.length >= maxBedrooms 
               ? 'border-gray-300 text-gray-400 cursor-not-allowed' 
               : 'border-blue-600 text-blue-600 hover:bg-blue-50'
           }`}
         >
           <Plus className="w-5 h-5" />
           <span className="font-medium">
-            {bedrooms.length === 0 ? 'Add bedroom' : 'Add new bedroom'}
-            {bedrooms.length >= 25 && ' (Max limit reached)'}
+            Add bedroom {bedConfig.bedrooms && bedConfig.bedrooms.length >= maxBedrooms && '(Max limit reached)'}
           </span>
         </button>
 
-        {bedrooms.map((bedroom, index) => (
-          <div key={bedroom.id} className="border border-gray-300 rounded mb-2">
-            {editingBedroomId === bedroom.id ? (
+        {bedConfig.bedrooms && bedConfig.bedrooms.map((bedroom, bedroomIndex) => (
+          <div key={bedroomIndex} className="border border-gray-300 rounded mb-2">
+            {editingBedroomIndex === bedroomIndex ? (
               <div className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold">{bedroom.name}</h3>
-                  <button
-                    onClick={() => {
-                      setEditingBedroomId(null);
-                      removeBedroom(bedroom.id);
-                    }}
-                    className="text-gray-500 hover:text-gray-700 text-2xl"
-                  >
-                    ×
-                  </button>
+                  {bedConfig.bedrooms && bedConfig.bedrooms.length > 1 && (
+                    <button
+                      onClick={() => {
+                        setEditingBedroomIndex(null);
+                        removeBedroom(bedroomIndex);
+                      }}
+                      className="text-gray-500 hover:text-gray-700 text-2xl"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
 
-                <div className="space-y-4">
-                  {bedTypes.map((bedType) => {
-                    const totalBeds = getTotalBeds(bedroom);
-                    const canAddMore = totalBeds < 25;
+                <div className="space-y-3">
+                  {bedroom.beds?.map((bed, bedIndex) => {
+                    const totalBeds = getTotalBedsInBedroom(bedroomIndex);
+                    const canAddMore = totalBeds < maxBedsPerRoom;
+                    const bedType = BED_TYPES.find(bt => bt.type === bed.type);
                     
                     return (
-                      <div key={bedType.key} className="flex items-center justify-between py-2">
+                      <div key={bedIndex} className="flex items-center justify-between py-2">
                         <div className="flex items-start gap-3">
-                          <span className="text-2xl">{bedType.icon}</span>
+                          <span className="text-2xl">{bedType?.icon || '🛏️'}</span>
                           <div>
-                            <div className="font-medium">{bedType.label}</div>
-                            <div className="text-sm text-gray-600">{bedType.size}</div>
+                            <div className="font-medium">{bed.type}</div>
+                            <div className="text-sm text-gray-600">{bed.size}</div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3 border border-gray-300 rounded-lg px-2 py-1">
                           <button
-                            onClick={() => updateBedroomBed(bedroom.id, bedType.key, bedroom.beds[bedType.key] - 1)}
+                            onClick={() => updateBedroomBedCount(bedroomIndex, bedIndex, bed.count - 1)}
                             className="text-gray-600 hover:text-gray-800 text-xl px-2"
-                            disabled={bedroom.beds[bedType.key] === 0}
+                            disabled={bed.count === 0}
                           >
                             −
                           </button>
-                          <span className="w-8 text-center font-medium">{bedroom.beds[bedType.key]}</span>
+                          <span className="w-8 text-center font-medium">{bed.count}</span>
                           <button
-                            onClick={() => updateBedroomBed(bedroom.id, bedType.key, bedroom.beds[bedType.key] + 1)}
+                            onClick={() => updateBedroomBedCount(bedroomIndex, bedIndex, bed.count + 1)}
                             className={`text-xl px-2 ${canAddMore ? 'text-blue-600 hover:text-blue-700' : 'text-gray-400 cursor-not-allowed'}`}
                             disabled={!canAddMore}
                           >
@@ -2121,7 +2535,7 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
                 </div>
 
                 <button
-                  onClick={saveBedroomEdit}
+                  onClick={() => setEditingBedroomIndex(null)}
                   className="w-full mt-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
                 >
                   Save
@@ -2130,145 +2544,67 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
             ) : (
               <div className="flex items-center">
                 <button
-                  onClick={() => setEditingBedroomId(bedroom.id)}
+                  onClick={() => setEditingBedroomIndex(bedroomIndex)}
                   className="flex-1 p-3 flex items-center justify-between"
                 >
                   <div className="text-left">
                     <div className="font-medium text-blue-600">{bedroom.name}</div>
-                    <div className="text-sm text-gray-600">{getTotalBeds(bedroom)} beds</div>
+                    <div className="text-sm text-gray-600">{getTotalBedsInBedroom(bedroomIndex)} beds</div>
                   </div>
                   <ChevronDown className="w-5 h-5 text-blue-600" />
                 </button>
-                <button
-                  onClick={() => removeBedroom(bedroom.id)}
-                  className="p-3 text-blue-600 hover:text-blue-700"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
+                {bedConfig.bedrooms && bedConfig.bedrooms.length > 1 && (
+                  <button
+                    onClick={() => removeBedroom(bedroomIndex)}
+                    className="p-3 text-blue-600 hover:text-blue-700"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                )}
               </div>
             )}
           </div>
         ))}
 
-        {/* Living room */}
+        {/* LIVING ROOM SECTION */}
         <div className="border border-gray-300 rounded mb-2">
-          {livingRoom.expanded ? (
+          {livingRoomExpanded ? (
             <div className="p-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-bold">Living room</h3>
                 <button
-                  onClick={() => {
-                    const updatedLivingRoom = { ...livingRoom, expanded: false };
-                    setLivingRoom(updatedLivingRoom);
-                    setFormData({ ...formData, livingRoom: updatedLivingRoom });
-                  }}
+                  onClick={() => setLivingRoomExpanded(false)}
                   className="text-gray-500 hover:text-gray-700 text-2xl"
                 >
                   ×
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between py-2">
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl">🛋️</span>
-                    <div>
-                      <div className="font-medium">Sofa bed</div>
-                      <div className="text-sm text-gray-600">Variable size</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 border border-gray-300 rounded-lg px-2 py-1">
-                    <button
-                      onClick={() => updateLivingRoomBeds(livingRoom.beds - 1)}
-                      className="text-gray-600 hover:text-gray-800 text-xl px-2"
-                      disabled={livingRoom.beds === 0}
-                    >
-                      −
-                    </button>
-                    <span className="w-8 text-center font-medium">{livingRoom.beds}</span>
-                    <button
-                      onClick={() => updateLivingRoomBeds(livingRoom.beds + 1)}
-                      className={`text-xl px-2 ${livingRoom.beds < 25 ? 'text-blue-600 hover:text-blue-700' : 'text-gray-400 cursor-not-allowed'}`}
-                      disabled={livingRoom.beds >= 25}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  const updatedLivingRoom = { ...livingRoom, expanded: false };
-                  setLivingRoom(updatedLivingRoom);
-                  setFormData({ ...formData, livingRoom: updatedLivingRoom });
-                }}
-                className="w-full mt-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-              >
-                Save
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => {
-                const updatedLivingRoom = { ...livingRoom, expanded: true };
-                setLivingRoom(updatedLivingRoom);
-                setFormData({ ...formData, livingRoom: updatedLivingRoom });
-              }}
-              className="w-full p-3 flex items-center justify-between"
-            >
-              <div className="text-left">
-                <div className="font-medium text-blue-600">Living room</div>
-                <div className="text-sm text-gray-600">{livingRoom.beds} sofa beds</div>
-              </div>
-              <ChevronDown className="w-5 h-5 text-blue-600" />
-            </button>
-          )}
-        </div>
-
-        {/* Other spaces */}
-        <div className="border border-gray-300 rounded mb-2">
-          {otherSpaces.expanded ? (
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold">Other spaces</h3>
-                <button
-                  onClick={() => {
-                    const updatedOtherSpaces = { ...otherSpaces, expanded: false };
-                    setOtherSpaces(updatedOtherSpaces);
-                    setFormData({ ...formData, otherSpaces: updatedOtherSpaces });
-                  }}
-                  className="text-gray-500 hover:text-gray-700 text-2xl"
-                >
-                  ×
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {bedTypes.map((bedType) => {
-                  const totalBeds = getTotalOtherSpacesBeds();
-                  const canAddMore = totalBeds < 25;
+              <div className="space-y-3">
+                {bedConfig.living_room.beds?.map((bed, bedIndex) => {
+                  const totalBeds = getTotalLivingRoomBeds();
+                  const canAddMore = totalBeds < maxBedsPerRoom;
                   
                   return (
-                    <div key={bedType.key} className="flex items-center justify-between py-2">
+                    <div key={bedIndex} className="flex items-center justify-between py-2">
                       <div className="flex items-start gap-3">
-                        <span className="text-2xl">{bedType.icon}</span>
+                        <span className="text-2xl">🛋️</span>
                         <div>
-                          <div className="font-medium">{bedType.label}</div>
-                          <div className="text-sm text-gray-600">{bedType.size}</div>
+                          <div className="font-medium">{bed.type}</div>
+                          <div className="text-sm text-gray-600">{bed.size}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-3 border border-gray-300 rounded-lg px-2 py-1">
                         <button
-                          onClick={() => updateOtherSpacesBed(bedType.key, otherSpaces.beds[bedType.key] - 1)}
+                          onClick={() => updateLivingRoomBedCount(bedIndex, bed.count - 1)}
                           className="text-gray-600 hover:text-gray-800 text-xl px-2"
-                          disabled={otherSpaces.beds[bedType.key] === 0}
+                          disabled={bed.count === 0}
                         >
                           −
                         </button>
-                        <span className="w-8 text-center font-medium">{otherSpaces.beds[bedType.key]}</span>
+                        <span className="w-8 text-center font-medium">{bed.count}</span>
                         <button
-                          onClick={() => updateOtherSpacesBed(bedType.key, otherSpaces.beds[bedType.key] + 1)}
+                          onClick={() => updateLivingRoomBedCount(bedIndex, bed.count + 1)}
                           className={`text-xl px-2 ${canAddMore ? 'text-blue-600 hover:text-blue-700' : 'text-gray-400 cursor-not-allowed'}`}
                           disabled={!canAddMore}
                         >
@@ -2281,11 +2617,7 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
               </div>
 
               <button
-                onClick={() => {
-                  const updatedOtherSpaces = { ...otherSpaces, expanded: false };
-                  setOtherSpaces(updatedOtherSpaces);
-                  setFormData({ ...formData, otherSpaces: updatedOtherSpaces });
-                }}
+                onClick={() => setLivingRoomExpanded(false)}
                 className="w-full mt-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
               >
                 Save
@@ -2293,11 +2625,101 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
             </div>
           ) : (
             <button
-              onClick={() => {
-                const updatedOtherSpaces = { ...otherSpaces, expanded: true };
-                setOtherSpaces(updatedOtherSpaces);
-                setFormData({ ...formData, otherSpaces: updatedOtherSpaces });
-              }}
+              onClick={() => setLivingRoomExpanded(true)}
+              className="w-full p-3 flex items-center justify-between"
+            >
+              <div className="text-left">
+                <div className="font-medium text-blue-600">Living room</div>
+                <div className="text-sm text-gray-600">{getTotalLivingRoomBeds()} sofa beds</div>
+              </div>
+              <ChevronDown className="w-5 h-5 text-blue-600" />
+            </button>
+          )}
+        </div>
+
+        {/* OTHER SPACES SECTION */}
+        <div className="border border-gray-300 rounded mb-2">
+          {otherSpacesExpanded ? (
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">Other spaces</h3>
+                <button
+                  onClick={() => setOtherSpacesExpanded(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {bedConfig.other_spaces?.map((space, spaceIndex) => (
+                <div key={spaceIndex} className="mb-4 pb-4 border-b last:border-b-0">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-semibold text-gray-900">{space.name}</h4>
+                    <button
+                      onClick={() => removeOtherSpace(spaceIndex)}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {space.beds?.map((bed, bedIndex) => {
+                      const totalBeds = getTotalBedsInOtherSpace(spaceIndex);
+                      const canAddMore = totalBeds < maxBedsPerRoom;
+                      const bedType = BED_TYPES.find(bt => bt.type === bed.type);
+                      
+                      return (
+                        <div key={bedIndex} className="flex items-center justify-between py-1">
+                          <div className="flex items-start gap-2">
+                            <span className="text-xl">{bedType?.icon || '🛏️'}</span>
+                            <div>
+                              <div className="text-sm font-medium">{bed.type}</div>
+                              <div className="text-xs text-gray-500">{bed.size}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-2 py-1">
+                            <button
+                              onClick={() => updateOtherSpaceBedCount(spaceIndex, bedIndex, bed.count - 1)}
+                              className="text-gray-600 hover:text-gray-800 text-lg px-1"
+                              disabled={bed.count === 0}
+                            >
+                              −
+                            </button>
+                            <span className="w-6 text-center text-sm font-medium">{bed.count}</span>
+                            <button
+                              onClick={() => updateOtherSpaceBedCount(spaceIndex, bedIndex, bed.count + 1)}
+                              className={`text-lg px-1 ${canAddMore ? 'text-blue-600 hover:text-blue-700' : 'text-gray-400 cursor-not-allowed'}`}
+                              disabled={!canAddMore}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              
+              <button
+                onClick={addOtherSpace}
+                className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium mt-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add Other Space
+              </button>
+
+              <button
+                onClick={() => setOtherSpacesExpanded(false)}
+                className="w-full mt-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setOtherSpacesExpanded(true)}
               className="w-full p-3 flex items-center justify-between"
             >
               <div className="text-left">
@@ -2310,8 +2732,8 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
         </div>
       </div>
 
+      {/* GUEST AND BATHROOM DETAILS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* How many guests can stay */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Maximum Guests *</label>
           <div className="relative flex items-center border border-gray-300 rounded-lg">
@@ -2323,16 +2745,15 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  maxGuests: Math.min(100, Math.max(1, parseInt(e.target.value) || 1)),
+                  maxGuests: Math.min(maxGuests, Math.max(1, parseInt(e.target.value) || 1)),
                 })
               }
               min="1"
-              max="100"
+              max={maxGuests}
             />
           </div>
         </div>
 
-        {/* Bathrooms */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Bathrooms *</label>
           <div className="relative flex items-center border border-gray-300 rounded-lg">
@@ -2344,22 +2765,20 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  bathrooms: Math.min(100, Math.max(1, parseInt(e.target.value) || 1)),
+                  bathrooms: Math.min(maxBathrooms, Math.max(1, parseInt(e.target.value) || 1)),
                 })
               }
               min="1"
-              max="100"
+              max={maxBathrooms}
             />
           </div>
         </div>
 
-        {/* Property Size + Unit Selector */}
         <div className="md:col-span-2 lg:col-span-1">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Property Size
           </label>
           <div className="flex items-center gap-3">
-            {/* Property Size Input */}
             <div className="relative w-[65%]">
               <Square className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5" />
               <input
@@ -2377,7 +2796,6 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
               />
             </div>
 
-            {/* Unit Selector */}
             <div className="w-[35%]">
               <select
                 className="w-full py-3 px-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -2397,7 +2815,7 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
         </div>
       </div>
 
-      {/* Do you allow children */}
+      {/* CHILDREN POLICY */}
       <div className="mb-6">
         <h3 className="text-base font-semibold mb-2">Do you allow children?</h3>
         <div className="flex gap-2">
@@ -2430,7 +2848,7 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
         </div>
       </div>
 
-      {/* Do you offer cots */}
+      {/* COTS POLICY */}
       <div className="mb-6">
         <h3 className="text-base font-semibold mb-1">Do you offer cots?</h3>
         <p className="text-sm text-gray-600 mb-2">
@@ -2466,6 +2884,7 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
         </div>
       </div>
 
+      {/* NAVIGATION BUTTONS */}
       <div className="flex justify-between pt-6">
         <button
           onClick={onBack}
@@ -2474,7 +2893,7 @@ const DetailsStep: React.FC<any> = ({ formData, setFormData, onNext, onBack }) =
           Back
         </button>
         <button
-          onClick={handleNext}
+          onClick={onNext}
           disabled={!isValid}
           className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 font-semibold"
         >
@@ -2721,20 +3140,28 @@ const PhotosStep: React.FC<any> = ({
   };
 
   const removeImage = (index: number) => {
-    setUploadedImages(prev => prev.filter((_, i) => i !== index));
-    // If removing the cover image, reset to no cover
-    if (coverImageIndex === index) {
-      setCoverImageIndex(null);
-    }
-    // If removing an image before the cover, adjust the cover index
-    else if (coverImageIndex !== null && index < coverImageIndex) {
-      setCoverImageIndex(coverImageIndex - 1);
-    }
-  };
+  setUploadedImages(prev => prev.filter((_, i) => i !== index));
 
-  const setCoverImage = (index: number) => {
-    setCoverImageIndex(index);
-  };
+  if (coverImageIndex === index) {
+    setCoverImageIndex(null);
+  } else if (coverImageIndex !== null && index < coverImageIndex) {
+    setCoverImageIndex(coverImageIndex - 1);
+  } else if (index === 0 && uploadedImages.length > 1) {
+    setCoverImageIndex(0); // automatically make new first image as cover
+  }
+};
+
+
+ const setCoverImage = (index: number) => {
+  setUploadedImages(prev => {
+    const newImages = [...prev];
+    const [selected] = newImages.splice(index, 1); // remove selected image
+    newImages.unshift(selected); // put it at the front
+    return newImages;
+  });
+  setCoverImageIndex(0); // cover image is now always the first
+};
+
 
   return (
     <div className="space-y-6">
@@ -3503,13 +3930,21 @@ const SuccessStep: React.FC<any> = ({ propertyId }) => {
 
       <div className="flex flex-col sm:flex-row gap-4 justify-center">
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => {
+            // *** CLEAR STORAGE AND RELOAD ***
+            clearStorage();
+            window.location.href = '/list-property';
+          }}
           className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
         >
           List Another Property
         </button>
         <button
-          onClick={() => navigate('/')}
+          onClick={() => {
+            // *** CLEAR STORAGE BEFORE GOING HOME ***
+            clearStorage();
+            navigate('/');
+          }}
           className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition-colors"
         >
           Go to Home
